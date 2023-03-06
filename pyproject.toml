@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mapreduce"
+description = "EECS 485 MapReduce"
+version = "1.0.0"
+requires-python = ">=3.8"
+dependencies = [
+    "click",
+    "pycodestyle",
+    "pydocstyle",
+    "pylint",
+    "mypy",
+    "pytest",
+    "pytest-mock",
+]
+
+[project.scripts]
+mapreduce-manager = "mapreduce.manager.__main__:main"
+mapreduce-worker = "mapreduce.worker.__main__:main"
+mapreduce-submit = "mapreduce.submit:main"
+
+[tool.setuptools]
+packages = ["mapreduce", "mapreduce.manager", "mapreduce.worker", "mapreduce.utils"]
