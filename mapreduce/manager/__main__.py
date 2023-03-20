@@ -28,11 +28,12 @@ class Manager:
         self.workerCount = 0 #should there be an worker_id in the dictionary for the quick access?
         self.freeWorkers = Queue() #all the workers that are ready
         self.jobCount = 0 #used for job_id
-        #need some data structure for checking heartbaet message
+        #create a dictionary for each worker's last time sending heartbeat:
+        #use worker_id as key:
+        self.lastBeat = {}
         #later have to use thread
         #for three things be at the same time : shutdown/ job running/ heartbeat
 
-    
     #a function for listening to non-heartbeat incoming messages :
     def listen_messages(self) :
         #use TCP
@@ -96,7 +97,7 @@ class Manager:
         sock.sendall(message.encode('utf-8'))
         #create a dictionary that stores the worker's info:
         worker = {
-            "worker_id" : self.workerCount, #same as index? later for quick access? to handle dead?
+            "worker_id" : self.workerCount, #only use for accessing worker's heatbeat time in dictioinary
             "worker_host" : workerHost,
             "worker_port" : workerPort,
             "state" : "ready"
@@ -245,7 +246,7 @@ class Manager:
         sock.bind((self.host, self.port)) #which ports should be binded 
         sock.settimeout(1)
 
-        while True: 
+        while self.shutdown is False: 
             try:
                 message_bytes = sock.recv(4096)
             except socket.timeout:
@@ -253,8 +254,20 @@ class Manager:
             message_str = message_bytes.decode("utf-8")
             message_dict = json.loads(message_str)
             #looping through workers and if one has not for 10s mark as dead
-            #create another function as marking worker dead
-    
+            wHost = message_dict["worker_host"]
+            wPort = messsage_dict["worker_port"]
+            workerID = self.get_worker_id(wHost, wPort)
+            if (workerID in self.lastBeat and time.time() - self.lastBeat["workerID"] >= 10) :
+                mark_worker_dead(wHost, wPort)
+            self.lastBeat["workerID"] = time.time()
+            #still need to create a function to reassign works of dead workers
+
+    #for heartbeat check: need to get id:
+    def get_worker_id(self, host, port) :
+        for worker in self.workers :
+            if worker["worker_host"] == host and worker["worker_port"] == port :
+                return worker["worker_id"]
+
     def mark_worker_dead(self, dead_worker_host, dead_worker_port) :
         for worker in self.workers :
             if worker["worker_host"] is dead_worker_host and worker["worker_port"] is dead_worker_port :
