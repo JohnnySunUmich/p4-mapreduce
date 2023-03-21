@@ -215,7 +215,7 @@ class Manager:
         executable = message_dict["mapper_executable"]
         numFiles = len(input_list)
         #find available workers in from the free worker queue :
-        for i in range(numTasks) :
+        for _ in range(numTasks) :
             curr = self.freeWorkers.get()
             mappers.put(curr)
         
