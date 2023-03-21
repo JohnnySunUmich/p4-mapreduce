@@ -246,7 +246,7 @@ class Manager:
         numFiles = len(allPaths)
         #do the partition job all over again here :
         #first find the workers to be reducers:
-        for i in range(num_reducers) :
+        for _ in range(num_reducers) :
             reducers.put(self.freeWorkers.get())
         tasks = [] #a list of lists 
         #sort the files and tasks for the workers:

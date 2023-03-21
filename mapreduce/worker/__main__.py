@@ -78,7 +78,7 @@ class Worker:
                 if message_type == "shutdown" :
                     self.shutdown = True
                 elif message_type == "register_ack" :
-                    self.register_ack = True
+                    self.registered = True
                     self.state = "ready"
                 elif message_type == "new_map_task" :
                     self.mapping(message_dict)
