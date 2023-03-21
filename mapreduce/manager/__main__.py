@@ -229,7 +229,7 @@ class Manager:
                     "message_type" : "new_reduce_task",
                     "task_id" : task_id,
                     "executable" : executable,
-                    "output_directory" : tmpdir,
+                    "output_directory" : message_dict["output_directory"],
                     "worker_host" : host,
                     "worker_port" : port
                 })
