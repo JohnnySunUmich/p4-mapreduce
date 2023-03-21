@@ -28,21 +28,27 @@ class Manager:
         #create a dictionary for each worker's last time sending heartbeat:
         #use worker_id as key
         self.lastBeat = {}
-        #later have to use thread
+        self.taskState = "" #track if it si tasking state or reducing state
+        self.receiveCount = 0 #track the finished map job
+        self.job_queue = Queue() #for pending jobs to be exevute 
+        #start running the main thing : 
         #for three things be at the same time : shutdown/ job running/ heartbeat
-        heartbeat_thread = threading.thread(target=self.listen_hb)
+        heartbeat_thread = threading.Thread(target=self.listen_hb)
         heartbeat_thread.start()
         #the main thread for listening for message:
-        main_thread  = threading.thread(target=self.listen_messages)
+        main_thread  = threading.Thread(target=self.listen_messages)
         main_thread.start()
+        shutdown_thread = threading.Thread(target=self.listen_messages)
+        shutdown_thread.start()
         #when shutdown is that need to wait for all threads to complete or terminate all?
     
     #create an inner class of Worker:
     class Worker:
-        def __init__(self, worker_host, worker_port, state) :
+        def __init__(self, worker_host, worker_port, state, tasks) :
             self.worker_host = worker_host
             self.worker_port = worker_port
             self.state = state
+            self.tasks = tasks
 
     #a function for listening to non-heartbeat incoming messages :
     def listen_messages(self) :
@@ -85,11 +91,18 @@ class Manager:
                 #and then determine if a message does something 
                 message_type = message_dict["message_type"]
                 if message_type == "new_manager_job" :
+                    self.jobCount += 1
                     self.handle_job_request(message_dict)
                 elif message_type == "register" :
                     self.handle_register(message_dict)
                 elif message_type == "shutdown" :
                     self.handle_shutdown()
+                elif message_type == "finished" :
+                    #first change the worker's state to ready again:
+                    pid = self.get_worker_id(message_dict["worker_host"], message_dict["worker_port"])
+                    self.update_ready(pid)
+                    if self.taskState == "mapping" :
+                        self.receiveCount += 1
             
 
     #a function to handle registering workers:
@@ -109,7 +122,7 @@ class Manager:
         #create a dictionary that stores the worker's info:
         #change the worker list of dic  to a dictionary of key: workerid, value: worker object
         worker_id = self.workerCount #worker pid for identification
-        worker = self.Worker(workerHost, workerPort, "ready")
+        worker = self.Worker(workerHost, workerPort, "ready",[])
         self.workers[worker_id] = worker
         self.workerCount += 1
     
@@ -131,12 +144,9 @@ class Manager:
         prefix = f"mapreduce-shared-job{self.job_id:05d}-"
         with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
             self.partition_mapping(message_dict, tmpdir)
-            #how to determine when to process to the reducing stage?
-            #determine mapping finished?
-            #how to know if all the workers sent receive message
-            self.reducing(message_dict, tmpdir)
+            if self.receiveCount == message_dict["num_mappers"]:
+                self.reducing(message_dict, tmpdir)
 
-    
     def get_free_workers(self) :
         self.freeWorkers.queue.clear()
         for worker in self.workers :
@@ -155,6 +165,9 @@ class Manager:
 
     def update_busy(self, worker_id) :
         self.workers[worker_id].state = "busy"
+
+    def update_ready(self, worker_id) :
+        self.workers[worker_id] = "ready"
         
     #for mapping:
     def partition_mapping(self, message_dict, tmpdir) :
@@ -184,6 +197,8 @@ class Manager:
                 port = mapper.worker_port
                 sock.connect((host, port))
                 self.update_busy(mapper_id) #update worker's state to busy
+                self.workers[mapper_id].tasks.append(tasks[index])
+                mapper.tasks.append(tasks[index])
                 message = json.dumps({
                     "message_type" : "new_map_task",
                     "task_id" : task_id,
@@ -197,6 +212,7 @@ class Manager:
                 sock.sendall(message.encode('utf-8'))
                 task_id += 1
                 index += 1
+        self.taskState = "mapping"
     
     #for reducing:
     def reducing(self, message_dict, tempdir) :
@@ -230,17 +246,21 @@ class Manager:
                 port = reducer.worker_port
                 sock.connect((host, port))
                 self.update_busy(reducer_id) #update worker's state to busy
+                self.workers[reducer_id].tasks.append(tasks[index])
+                reducers.tasks.append(tasks[index])
                 message = json.dumps({
                     "message_type" : "new_reduce_task",
                     "task_id" : task_id,
                     "executable" : executable,
-                    "output_directory" : output_directory
+                    "input_paths" : tasks[index],
+                    "output_directory" : output_directory,
                     "worker_host" : host,
                     "worker_port" : port
                 })
-            sock.sendall(message.encode('utf-8'))
+                sock.sendall(message.encode('utf-8'))
             task_id += 1
             index += 1
+        self.taskState = "reducing"
 
     #a function for listening to heartbeat messages :
     def listen_hb(self) :
@@ -274,7 +294,31 @@ class Manager:
 
     def mark_worker_dead(self, dead_id) :
         self.workers[dead_id].state = "dead"
-    
+
+    #if a worker dies, assign its tasks to the next available worker:
+    def reassign_task(self, dead_id) :
+        self.get_free_workers()
+        newWorker = self.freeWorkers.get()
+        #the task file to be re-distributed :
+        task_file = self.workers[dead_id].tasks
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.connect((newWorker.worker_host, newWorker.worker_port))
+            #the task to be reassigned
+            if self.taskState == "mapping" :
+                message = json.dumps({
+                    "message_type" : "re_map",
+                    "input_paths" : task_file
+                })
+            elif self.taskState == "reducing" :
+                message = json.dumps({
+                    "message_type" : "re_reduce",
+                    "input_path" : task_file
+                })
+            sock.sendall(message.encode('utf-8'))
+        new_id = self.get_worker_id(newWorker.worker_host, newWorker.worker_port)
+        self.update_busy(new_id)
+        self.workers[new_id].task = task_file
+
 
 @click.command()
 @click.option("--host", "host", default="localhost")

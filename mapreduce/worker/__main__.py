@@ -2,7 +2,6 @@
 import os
 import logging
 import socket
-import socket
 import json
 import time
 import threading
@@ -10,10 +9,9 @@ import click
 import shutil
 import hashlib
 import tempfile
-import shutil
-import hashlib
-import tempfile
-import mapreduce.utils
+import subprocess
+import heapq
+from queue import Queue
 
 # Configure logging
 LOGGER = logging.getLogger(__name__)
@@ -42,7 +40,7 @@ class Worker:
         self.listen()
 
     #a function to listen to the manager's tcp message :
-    def listen() :
+    def listen(self) :
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind((self.host, self.port))
@@ -51,7 +49,7 @@ class Worker:
             while self.shutdown == False:
                 #first register it if not already done so:
                 if self.registered == False :
-                    register()
+                    self.register()
                 #then get the message :
                 try:
                     clientsocket, address = sock.accept()
@@ -80,33 +78,33 @@ class Worker:
                 if message_type == "shutdown" :
                     self.shutdown = True
                 elif message_type == "new_map_task" :
-                    mapping(message_dict)
+                    self.mapping(message_dict)
                 elif message_type == "new_reduce_task" :
-                    reducing(message_dict)
+                    self.reducing(message_dict)
     
             
     #a function that sends register:
     def register(self) :
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.connect((self.manager_host, self.manager_port))
-        message = json.dumps({
-            "message_type" : "register",
-            "worker_host" : self.host,
-            "worker_port" : self.port
-        })
-        sock.sendall(message.encode('utf-8'))
+            sock.connect((self.manager_host, self.manager_port))
+            message = json.dumps({
+                "message_type" : "register",
+                "worker_host" : self.host,
+                "worker_port" : self.port
+            })
+            sock.sendall(message.encode('utf-8'))
     
     #send heartbeat message:
     def send_heartbeat(self) :
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        sock.connect((self.manager_host, self.manager_port))
-        message = json.dumps({
-            "message_type" : "heartbeat",
-            "worker_host" : self.host,
-            "worker_port" : self.port
-        })
-        sock.sendall(message.encode('utf-8'))
-        time.sleep(2)
+            sock.connect((self.manager_host, self.manager_port))
+            message = json.dumps({
+                "message_type" : "heartbeat",
+                "worker_host" : self.host,
+                "worker_port" : self.port
+            })
+            sock.sendall(message.encode('utf-8'))
+            time.sleep(2)
     
     #for performing mapping tasks:
     def mapping(self, message_dict) :
@@ -161,7 +159,7 @@ class Worker:
 
         #now deal with the outfile : 
         with tempfile.TemporaryDirectory(prefix='mapreduce-local-task{}-'.format(task_id)) as tmp_dir2: 
-            outfile = '{}/part-{}'.format(tmp_dir, task_id)
+            outfile = '{}/part-{}'.format(tmp_dir2, task_id)
             with subprocess.Popen(
             executable,
             text=True,
