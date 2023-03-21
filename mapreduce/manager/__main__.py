@@ -112,9 +112,10 @@ class Manager:
         if (not self.job_queue.empty()) and self.manager_state == 'ready' and self.get_free_workers() == True:
             self.manager_state = "busy"
             message_dict = self.job_queue.get()
-            # self.message_dict = self.job_queue.get()?
-            prefix = f"mapreduce-shared-job{self.job_id:05d}-"
+            self.currentJob = message_dict
+            prefix = f"mapreduce-shared-job{message_dict['job_id']:05d}-"
             with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
+                self.tempDir = tmpdir
                 self.partition_mapping(message_dict, tmpdir)
                 if self.receiveCount == message_dict["num_mappers"]:
                     self.reducing(message_dict, tmpdir)
@@ -160,10 +161,11 @@ class Manager:
         # TODO: check correctness
         #create temp dir need to call both mapping and reducing inside it:
         if (self.get_free_workers() == True):
+            self.currentJob = message_dict
             self.manager_state = "busy"
-            # self.message_dict?
-            prefix = f"mapreduce-shared-job{self.job_id:05d}-"
+            prefix = f"mapreduce-shared-job{job_id:05d}-"
             with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
+                self.tempDir = tmpdir
                 self.partition_mapping(message_dict, tmpdir)
                 if self.receiveCount == message_dict["num_mappers"]:
                     self.reducing(message_dict, tmpdir)
@@ -178,7 +180,7 @@ class Manager:
                 have_free_workers = True
                 self.freeWorkers.put(worker)
         if have_free_workers and self.manager_state == "ready" :
-             return True
+            return True
         return False
 
     def sorting(self, input_list, numTasks, numFiles, tasks) :
