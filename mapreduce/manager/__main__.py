@@ -263,7 +263,7 @@ class Manager:
         numFiles = len(allPaths)
         #do the partition job all over again here :
         #first find the workers to be reducers:
-        for i in range(num_reducers) :
+        for _ in range(num_reducers) :
             reducers.put(self.freeWorkers.get())
         tasks = [] #a list of lists 
         #sort the files and tasks for the workers:
@@ -314,6 +314,7 @@ class Manager:
                 workerID = self.get_worker_id(wHost, wPort)
                 if (workerID in self.lastBeat and time.time() - self.lastBeat["workerID"] >= 10) :
                     self.mark_worker_dead(workerID)
+                    self.reassign_task(workerID)
                 self.lastBeat["workerID"] = time.time()
                 #still need to create a function to reassign works of dead workers
     
@@ -337,12 +338,17 @@ class Manager:
             if self.taskState == "mapping" :
                 message = json.dumps({
                     "message_type" : "re_map",
-                    "input_paths" : task_file
+                    "input_paths" : task_file,
+                    "executable" : self.currentJob["mapper_executable"],
+                    "num_partitions" : self.currentJob["num_reducers"],
+                    "output_directory" : self.tempDir
                 })
             elif self.taskState == "reducing" :
                 message = json.dumps({
                     "message_type" : "re_reduce",
-                    "input_path" : task_file
+                    "input_path" : task_file,
+                    "executable" : self.currentJob["reducer_executable"],
+                    "output_directory" : self.currentJob["output_directory"]
                 })
             sock.sendall(message.encode('utf-8'))
         new_id = self.get_worker_id(newWorker.worker_host, newWorker.worker_port)
