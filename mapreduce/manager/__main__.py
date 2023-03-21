@@ -77,9 +77,9 @@ class Manager:
                 if message_type == "new_manager_job" :
                     self.handle_job_request(message_dict)
                 elif message_type == "register" :
-                    handle_register(message_dict)
+                    self.handle_register(message_dict)
                 elif message_type == "shutdown" :
-                    handle_shutdown()
+                    self.handle_shutdown()
 
     #a function to handle registering workers:
     def handle_register(self, dic) :
@@ -114,7 +114,7 @@ class Manager:
                     "message_type" : "shutdown"
                 })
                 sock.sendall(message.encode('utf-8'))
-    self.shutdown = True
+        self.shutdown = True
 
     #a function to handle job request:
     def handle_job_request(self, message_dict):
@@ -160,7 +160,7 @@ class Manager:
         numTasks = message_dict["num_mappers"]
         num_reducers = message_dict["num_reducers"]
         executable = message_dict["mapper_executable"]
-        output_directory = message_dic["output_directory"]
+        output_directory = message_dict["output_directory"]
         numFiles = len(input_list)
         #find available workers in from the free worker queue :
         for i in range(numTasks) :
@@ -194,7 +194,7 @@ class Manager:
                 index += 1
     
     #for reducing:
-    def reducing(self, message_dic, tempdir) :
+    def reducing(self, message_dict, tempdir) :
         task_id = 0
         self.get_free_workers()
         reducers = Queue()
@@ -255,7 +255,7 @@ class Manager:
                 message_dict = json.loads(message_str)
                 #looping through workers and if one has not for 10s mark as dead
                 wHost = message_dict["worker_host"]
-                wPort = messsage_dict["worker_port"]
+                wPort = message_dict["worker_port"]
                 workerID = self.get_worker_id(wHost, wPort)
                 if (workerID in self.lastBeat and time.time() - self.lastBeat["workerID"] >= 10) :
                     mark_worker_dead(wHost, wPort)
