@@ -4,19 +4,11 @@ import tempfile
 import logging
 import socket
 import threading
-import socket
-import threading
 import json
 import time
 import click
-import mapreduce.utils
-import shutil
-from pathlib import Path
 from queue import Queue
-import heapqimport shutil
-from pathlib import Path
-from queue import Queue
-import heapq
+
 
 # Configure logging
 LOGGER = logging.getLogger(__name__)
@@ -56,49 +48,49 @@ class Manager:
     def listen_messages(self) :
         #use TCP
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((self.host, self.port)) 
-        sock.listen()
-        sock.settimeout(1)
-        #handle things here that while not shutting down 
-        while self.shutdown is not True:
-            # Wait for a connection for 1s.  The socket library avoids consuming
-            # CPU while waiting for a connection.
-            try:
-                clientsocket, address = sock.accept()
-            except socket.timeout:
-                continue
-            # Socket recv() will block for a maximum of 1 second.  If you omit
-            # this, it blocks indefinitely, waiting for packets.
-            clientsocket.settimeout(1)
-            with clientsocket:
-                message_chunks = []
-                while True:
-                    try:
-                        data = clientsocket.recv(4096)
-                    except socket.timeout:
-                        continue
-                    if not data:
-                        break
-                    message_chunks.append(data)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((self.host, self.port)) 
+            sock.listen()
+            sock.settimeout(1)
+            #handle things here that while not shutting down 
+            while self.shutdown is not True:
+                # Wait for a connection for 1s.  The socket library avoids consuming
+                # CPU while waiting for a connection.
+                try:
+                    clientsocket, address = sock.accept()
+                except socket.timeout:
+                    continue
+                # Socket recv() will block for a maximum of 1 second.  If you omit
+                # this, it blocks indefinitely, waiting for packets.
+                clientsocket.settimeout(1)
+                with clientsocket:
+                    message_chunks = []
+                    while True:
+                        try:
+                            data = clientsocket.recv(4096)
+                        except socket.timeout:
+                            continue
+                        if not data:
+                            break
+                        message_chunks.append(data)
 
-            # Decode list-of-byte-strings to UTF8 and parse JSON data
-            message_bytes = b''.join(message_chunks)
-            message_str = message_bytes.decode("utf-8")
+                # Decode list-of-byte-strings to UTF8 and parse JSON data
+                message_bytes = b''.join(message_chunks)
+                message_str = message_bytes.decode("utf-8")
 
-            try:
-                message_dict = json.loads(message_str)
-            except json.JSONDecodeError:
-                continue
-            #and then determine if a message does something 
-            message_type = message_dict["message_type"]
-            if message_type == "new_manager_job" :
-                self.handle_job_request(message_dict)
-            elif message_type == "register" :
-                handle_register(message_dict)
-            elif message_type == "shutdown" :
-                handle_shutdown()
-        
+                try:
+                    message_dict = json.loads(message_str)
+                except json.JSONDecodeError:
+                    continue
+                #and then determine if a message does something 
+                message_type = message_dict["message_type"]
+                if message_type == "new_manager_job" :
+                    self.handle_job_request(message_dict)
+                elif message_type == "register" :
+                    self.handle_register(message_dict)
+                elif message_type == "shutdown" :
+                    self.handle_shutdown()
+            
 
     #a function to handle registering workers:
     def handle_register(self, dic) :
@@ -107,28 +99,29 @@ class Manager:
         workerPort = dic["worker_port"]
         #then send a message back to the worker 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.connect((workerHost, workerPort))
-        message = json.dumps({
-            "message_type" : "register_ack",
-            "worker_host" : workerHost,
-            "worker_port" : workerPort
-        })
-        sock.sendall(message.encode('utf-8'))
+            sock.connect((workerHost, workerPort))
+            message = json.dumps({
+                "message_type" : "register_ack",
+                "worker_host" : workerHost,
+                "worker_port" : workerPort
+            })
+            sock.sendall(message.encode('utf-8'))
         #create a dictionary that stores the worker's info:
         #change the worker list of dic  to a dictionary of key: workerid, value: worker object
         worker_id = self.workerCount #worker pid for identification
-        self.workers["worker_id"] = worker
+        worker = self.Worker(workerHost, workerPort, "ready")
+        self.workers[worker_id] = worker
         self.workerCount += 1
     
     def handle_shutdown(self) :
         for worker in self.workers :
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.connect((worker.worker_host, worker.worker_port))
-            message = json.dumps({
-                "message_type" : "shutdown"
-            })
-            sock.sendall(message.encode('utf-8'))
-    self.shutdown = True
+                sock.connect((worker.worker_host, worker.worker_port))
+                message = json.dumps({
+                    "message_type" : "shutdown"
+                })
+                sock.sendall(message.encode('utf-8'))
+        self.shutdown = True
 
     #a function to handle job request:
     def handle_job_request(self, message_dict):
@@ -137,11 +130,11 @@ class Manager:
         #create temp dir need to call both mapping and reducing inside it:
         prefix = f"mapreduce-shared-job{self.job_id:05d}-"
         with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
-            self.partition_mapping(message_dict, tempdir)
+            self.partition_mapping(message_dict, tmpdir)
             #how to determine when to process to the reducing stage?
-            #create variable 
+            #determine mapping finished?
             #how to know if all the workers sent receive message
-            self.reducing(message_dict, tempdir)
+            self.reducing(message_dict, tmpdir)
 
     
     def get_free_workers(self) :
@@ -152,7 +145,7 @@ class Manager:
 
     def sorting(self, input_list, numTasks, numFiles, tasks) :
         #create numTasks of lists and add them to the list of tasks
-        for i in range(numTask) :
+        for i in range(numTasks) :
             temp = []
             tasks.append(temp)
         #then iterate through all files and assign them to workers
@@ -164,7 +157,7 @@ class Manager:
         self.workers[worker_id].state = "busy"
         
     #for mapping:
-    def partition_mapping(self, message_dict, tempdir) :
+    def partition_mapping(self, message_dict, tmpdir) :
         task_id = 0
         self.get_free_workers()
         mappers = Queue()
@@ -173,7 +166,6 @@ class Manager:
         numTasks = message_dict["num_mappers"]
         num_reducers = message_dict["num_reducers"]
         executable = message_dict["mapper_executable"]
-        output_directory = message_dic["output_directory"]
         numFiles = len(input_list)
         #find available workers in from the free worker queue :
         for i in range(numTasks) :
@@ -188,26 +180,26 @@ class Manager:
         index = 0 #use for accessing the list of tasks
         for mapper_id, mapper in mappers.items() :
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            host = mapper.worker_host
-            port = mapper.worker_port
-            sock.connect((host, port))
-            self.update_busy(mapper_id) #update worker's state to busy
-            message = json.dumps({
-                "message_type" : "new_map_task",
-                "task_id" : task_id,
-                "input_path" : tasks[index] #list of strings/filenames
-                "executable" : executable,
-                "output_directory" : tmpdir,
-                "num_partitions" : num_reducers,
-                "worker_host" : host,
-                "worker_port" : port
-            })
-            sock.sendall(message.encode('utf-8'))
-            task_id += 1
-            index += 1
+                host = mapper.worker_host
+                port = mapper.worker_port
+                sock.connect((host, port))
+                self.update_busy(mapper_id) #update worker's state to busy
+                message = json.dumps({
+                    "message_type" : "new_map_task",
+                    "task_id" : task_id,
+                    "input_path" : tasks[index], #list of strings/filenames
+                    "executable" : executable,
+                    "output_directory" : tmpdir,
+                    "num_partitions" : num_reducers,
+                    "worker_host" : host,
+                    "worker_port" : port
+                })
+                sock.sendall(message.encode('utf-8'))
+                task_id += 1
+                index += 1
     
     #for reducing:
-    def reducing(self, message_dic, tempdir) :
+    def reducing(self, message_dict, tempdir) :
         task_id = 0
         self.get_free_workers()
         reducers = Queue()
@@ -242,7 +234,7 @@ class Manager:
                     "message_type" : "new_reduce_task",
                     "task_id" : task_id,
                     "executable" : executable,
-                    "output_directory" : message_dict["output_directory"]
+                    "output_directory" : output_directory
                     "worker_host" : host,
                     "worker_port" : port
                 })
@@ -255,25 +247,25 @@ class Manager:
         """Listen to workers' heartbeat messages"""
         #use UDP
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((self.host, self.port)) #which ports should be binded 
-        sock.settimeout(1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((self.host, self.port)) #which ports should be binded 
+            sock.settimeout(1)
 
-        while self.shutdown is False: 
-            try:
-                message_bytes = sock.recv(4096)
-            except socket.timeout:
-                continue
-            message_str = message_bytes.decode("utf-8")
-            message_dict = json.loads(message_str)
-            #looping through workers and if one has not for 10s mark as dead
-            wHost = message_dict["worker_host"]
-            wPort = messsage_dict["worker_port"]
-            workerID = self.get_worker_id(wHost, wPort)
-            if (workerID in self.lastBeat and time.time() - self.lastBeat["workerID"] >= 10) :
-                mark_worker_dead(workerID)
-            self.lastBeat["workerID"] = time.time()
-            #still need to create a function to reassign works of dead workers
+            while self.shutdown is False: 
+                try:
+                    message_bytes = sock.recv(4096)
+                except socket.timeout:
+                    continue
+                message_str = message_bytes.decode("utf-8")
+                message_dict = json.loads(message_str)
+                #looping through workers and if one has not for 10s mark as dead
+                wHost = message_dict["worker_host"]
+                wPort = message_dict["worker_port"]
+                workerID = self.get_worker_id(wHost, wPort)
+                if (workerID in self.lastBeat and time.time() - self.lastBeat["workerID"] >= 10) :
+                    self.mark_worker_dead(workerID)
+                self.lastBeat["workerID"] = time.time()
+                #still need to create a function to reassign works of dead workers
     
     def get_worker_id(self, host, port) :
         for pid, worker in self.workers.item() :
