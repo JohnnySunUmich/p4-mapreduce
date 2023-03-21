@@ -28,6 +28,7 @@ class Manager:
         #create a dictionary for each worker's last time sending heartbeat:
         #use worker_id as key
         self.lastBeat = {}
+        self.manager_state = "ready"
         self.taskState = "" #track if it si tasking state or reducing state
         self.receiveCount = 0 #track the finished map job
         self.job_queue = Queue() #for pending jobs to be exevute 
@@ -139,19 +140,31 @@ class Manager:
     #a function to handle job request:
     def handle_job_request(self, message_dict):
         #first assign a job id
+        job_id = self.jobCount
         self.jobCount += 1
+        message_dict["job_id"] = job_id
+        # TODO: check correctness
         #create temp dir need to call both mapping and reducing inside it:
-        prefix = f"mapreduce-shared-job{self.job_id:05d}-"
-        with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
-            self.partition_mapping(message_dict, tmpdir)
-            if self.receiveCount == message_dict["num_mappers"]:
-                self.reducing(message_dict, tmpdir)
+        if (self.get_free_workers() == True):
+            self.manager_state = "busy"
+            prefix = f"mapreduce-shared-job{self.job_id:05d}-"
+            with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
+                self.partition_mapping(message_dict, tmpdir)
+                if self.receiveCount == message_dict["num_mappers"]:
+                    self.reducing(message_dict, tmpdir)
+        else:
+            self.job_queue.put(message_dict)
 
     def get_free_workers(self) :
+        have_free_workers = False
         self.freeWorkers.queue.clear()
         for worker in self.workers :
             if worker.state == "ready" :
+                have_free_workers = True
                 self.freeWorkers.put(worker)
+        if have_free_workers and self.manager_state == "ready" :
+             return True
+        return False
 
     def sorting(self, input_list, numTasks, numFiles, tasks) :
         #create numTasks of lists and add them to the list of tasks
