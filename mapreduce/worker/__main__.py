@@ -18,13 +18,7 @@ LOGGER = logging.getLogger(__name__)
 
 class Worker:
     """A class representing a Worker node in a MapReduce cluster."""
-    def __init__(self, host, port, manager_host, manager_port):
-
-        #what should be included in the initialization of a worker?
-        #how to connect it to a specific manager / with manager port id?? 
-
-        #what should be included in the initialization of a worker?
-        #how to connect it to a specific manager / with manager port id?? 
+    def __init__(self, host, port, manager_host, manager_port): 
         """Construct a Worker instance and start listening for messages."""
         self.tasks = Queue()
         self.state = ""
