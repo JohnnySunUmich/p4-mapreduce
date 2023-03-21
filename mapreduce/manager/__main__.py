@@ -61,6 +61,8 @@ class Manager:
             sock.settimeout(1)
             #handle things here that while not shutting down 
             while self.shutdown is not True:
+                # check job_queue
+                self.check_job_queue()
                 # Wait for a connection for 1s.  The socket library avoids consuming
                 # CPU while waiting for a connection.
                 try:
@@ -103,7 +105,18 @@ class Manager:
                     self.update_ready(pid)
                     if self.taskState == "mapping" :
                         self.receiveCount += 1
-            
+
+    def check_job_queue(self):
+        if (not self.job_queue.empty()) and self.manager_state == 'ready' and self.get_free_workers() == True:
+            self.manager_state = "busy"
+            message_dict = self.job_queue.get()
+            # self.message_dict = self.job_queue.get()?
+            prefix = f"mapreduce-shared-job{self.job_id:05d}-"
+            with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
+                self.partition_mapping(message_dict, tmpdir)
+                if self.receiveCount == message_dict["num_mappers"]:
+                    self.reducing(message_dict, tmpdir)
+
 
     #a function to handle registering workers:
     def handle_register(self, dic) :
@@ -146,6 +159,7 @@ class Manager:
         #create temp dir need to call both mapping and reducing inside it:
         if (self.get_free_workers() == True):
             self.manager_state = "busy"
+            # self.message_dict?
             prefix = f"mapreduce-shared-job{self.job_id:05d}-"
             with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
                 self.partition_mapping(message_dict, tmpdir)
