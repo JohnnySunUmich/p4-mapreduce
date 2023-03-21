@@ -125,6 +125,7 @@ class Worker:
                     text=True,
                 ) as map_process :
                     for line in map_process.stdout :
+                        key = line.split("\t")[0]
                         hexdigest = hashlib.md5(key.encode("utf-8")).hexdigest()
                         keyhash = int(hexdigest, base=16)
                         partition_number = keyhash % num_partitions
