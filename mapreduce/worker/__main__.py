@@ -2,10 +2,14 @@
 import os
 import logging
 import socket
+import socket
 import json
 import time
 import threading
 import click
+import shutil
+import hashlib
+import tempfile
 import shutil
 import hashlib
 import tempfile
@@ -17,6 +21,9 @@ LOGGER = logging.getLogger(__name__)
 class Worker:
     """A class representing a Worker node in a MapReduce cluster."""
     def __init__(self, host, port, manager_host, manager_port):
+
+        #what should be included in the initialization of a worker?
+        #how to connect it to a specific manager / with manager port id?? 
 
         #what should be included in the initialization of a worker?
         #how to connect it to a specific manager / with manager port id?? 
