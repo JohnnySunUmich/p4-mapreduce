@@ -76,25 +76,25 @@ class Worker:
     #a function that sends register:
     def register(self) :
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.connect((self.manager_host, self.manager_port))
-        message = json.dumps({
-            "message_type" : "register",
-            "worker_host" : self.host,
-            "worker_port" : self.port
-        })
-        sock.sendall(message.encode('utf-8'))
+            sock.connect((self.manager_host, self.manager_port))
+            message = json.dumps({
+                "message_type" : "register",
+                "worker_host" : self.host,
+                "worker_port" : self.port
+            })
+            sock.sendall(message.encode('utf-8'))
     
     #send heartbeat message:
     def send_heartbeat(self) :
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        sock.connect((self.manager_host, self.manager_port))
-        message = json.dumps({
-            "message_type" : "heartbeat",
-            "worker_host" : self.host,
-            "worker_port" : self.port
-        })
-        sock.sendall(message.encode('utf-8'))
-        time.sleep(2)
+            sock.connect((self.manager_host, self.manager_port))
+            message = json.dumps({
+                "message_type" : "heartbeat",
+                "worker_host" : self.host,
+                "worker_port" : self.port
+            })
+            sock.sendall(message.encode('utf-8'))
+            time.sleep(2)
     
     #for performing mapping tasks:
     def mapping(self, message_dict) :

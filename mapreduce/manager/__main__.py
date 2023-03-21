@@ -38,48 +38,48 @@ class Manager:
     def listen_messages(self) :
         #use TCP
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((self.host, self.port)) 
-        sock.listen()
-        sock.settimeout(1)
-        #handle things here that while not shutting down 
-        while self.shutdown is not True:
-            # Wait for a connection for 1s.  The socket library avoids consuming
-            # CPU while waiting for a connection.
-            try:
-                clientsocket, address = sock.accept()
-            except socket.timeout:
-                continue
-            # Socket recv() will block for a maximum of 1 second.  If you omit
-            # this, it blocks indefinitely, waiting for packets.
-            clientsocket.settimeout(1)
-            with clientsocket:
-                message_chunks = []
-                while True:
-                    try:
-                        data = clientsocket.recv(4096)
-                    except socket.timeout:
-                        continue
-                    if not data:
-                        break
-                    message_chunks.append(data)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((self.host, self.port)) 
+            sock.listen()
+            sock.settimeout(1)
+            #handle things here that while not shutting down 
+            while self.shutdown is not True:
+                # Wait for a connection for 1s.  The socket library avoids consuming
+                # CPU while waiting for a connection.
+                try:
+                    clientsocket, address = sock.accept()
+                except socket.timeout:
+                    continue
+                # Socket recv() will block for a maximum of 1 second.  If you omit
+                # this, it blocks indefinitely, waiting for packets.
+                clientsocket.settimeout(1)
+                with clientsocket:
+                    message_chunks = []
+                    while True:
+                        try:
+                            data = clientsocket.recv(4096)
+                        except socket.timeout:
+                            continue
+                        if not data:
+                            break
+                        message_chunks.append(data)
 
-            # Decode list-of-byte-strings to UTF8 and parse JSON data
-            message_bytes = b''.join(message_chunks)
-            message_str = message_bytes.decode("utf-8")
+                # Decode list-of-byte-strings to UTF8 and parse JSON data
+                message_bytes = b''.join(message_chunks)
+                message_str = message_bytes.decode("utf-8")
 
-            try:
-                message_dict = json.loads(message_str)
-            except json.JSONDecodeError:
-                continue
-            #and then determine if a message does something 
-            message_type = message_dict["message_type"]
-            if message_type == "new_manager_job" :
-                self.handle_job_request(message_dict)
-            elif message_type == "register" :
-                handle_register(message_dict)
-            elif message_type == "shutdown" :
-                handle_shutdown()
+                try:
+                    message_dict = json.loads(message_str)
+                except json.JSONDecodeError:
+                    continue
+                #and then determine if a message does something 
+                message_type = message_dict["message_type"]
+                if message_type == "new_manager_job" :
+                    self.handle_job_request(message_dict)
+                elif message_type == "register" :
+                    handle_register(message_dict)
+                elif message_type == "shutdown" :
+                    handle_shutdown()
 
     #a function to handle registering workers:
     def handle_register(self, dic) :
@@ -88,32 +88,32 @@ class Manager:
         workerPort = dic["worker_port"]
         #then send a message back to the worker 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.connect((workerHost, workerPort))
-        message = json.dumps({
-            "message_type" : "register_ack",
-            "worker_host" : workerHost,
-            "worker_port" : workerPort
-        })
-        sock.sendall(message.encode('utf-8'))
-        #create a dictionary that stores the worker's info:
-        worker = {
-            "worker_id" : self.workerCount, #only use for accessing worker's heatbeat time in dictioinary
-            "worker_host" : workerHost,
-            "worker_port" : workerPort,
-            "state" : "ready"
-        }
-        self.workers.append(worker)
-        self.workerCount += 1
+            sock.connect((workerHost, workerPort))
+            message = json.dumps({
+                "message_type" : "register_ack",
+                "worker_host" : workerHost,
+                "worker_port" : workerPort
+            })
+            sock.sendall(message.encode('utf-8'))
+            #create a dictionary that stores the worker's info:
+            worker = {
+                "worker_id" : self.workerCount, #only use for accessing worker's heatbeat time in dictioinary
+                "worker_host" : workerHost,
+                "worker_port" : workerPort,
+                "state" : "ready"
+            }
+            self.workers.append(worker)
+            self.workerCount += 1
         
     
     def handle_shutdown(self) :
         for worker in self.workers :
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.connect((worker["worker_host"], worker["worker_port"]))
-            message = json.dumps({
-                "message_type" : "shutdown"
-            })
-            sock.sendall(message.encode('utf-8'))
+                sock.connect((worker["worker_host"], worker["worker_port"]))
+                message = json.dumps({
+                    "message_type" : "shutdown"
+                })
+                sock.sendall(message.encode('utf-8'))
     self.shutdown = True
 
     #a function to handle job request:
@@ -175,23 +175,23 @@ class Manager:
         index = 0 #use for accessing the list of tasks
         for mapper in mappers :
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            host = mapper["worker_host"]
-            port = mapper["worker_port"]
-            sock.connect((host, port))
-            self.update_busy(host, port) #update worker's state to busy
-            message = json.dumps({
-                "message_type" : "new_map_task",
-                "task_id" : task_id,
-                "input_path" : tasks[index] #list of strings/filenames
-                "executable" : executable,
-                "output_directory" : tmpdir,
-                "num_partitions" : num_reducers,
-                "worker_host" : host,
-                "worker_port" : port
-            })
-            sock.sendall(message.encode('utf-8'))
-            task_id += 1
-            index += 1
+                host = mapper["worker_host"]
+                port = mapper["worker_port"]
+                sock.connect((host, port))
+                self.update_busy(host, port) #update worker's state to busy
+                message = json.dumps({
+                    "message_type" : "new_map_task",
+                    "task_id" : task_id,
+                    "input_path" : tasks[index], #list of strings/filenames
+                    "executable" : executable,
+                    "output_directory" : tmpdir,
+                    "num_partitions" : num_reducers,
+                    "worker_host" : host,
+                    "worker_port" : port
+                })
+                sock.sendall(message.encode('utf-8'))
+                task_id += 1
+                index += 1
     
     #for reducing:
     def reducing(self, message_dic, tempdir) :
@@ -229,7 +229,7 @@ class Manager:
                     "message_type" : "new_reduce_task",
                     "task_id" : task_id,
                     "executable" : executable,
-                    "output_directory" : 
+                    "output_directory" : tmpdir,
                     "worker_host" : host,
                     "worker_port" : port
                 })
@@ -242,25 +242,25 @@ class Manager:
         """Listen to workers' heartbeat messages"""
         #use UDP
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((self.host, self.port)) #which ports should be binded 
-        sock.settimeout(1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((self.host, self.port)) #which ports should be binded 
+            sock.settimeout(1)
 
-        while self.shutdown is False: 
-            try:
-                message_bytes = sock.recv(4096)
-            except socket.timeout:
-                continue
-            message_str = message_bytes.decode("utf-8")
-            message_dict = json.loads(message_str)
-            #looping through workers and if one has not for 10s mark as dead
-            wHost = message_dict["worker_host"]
-            wPort = messsage_dict["worker_port"]
-            workerID = self.get_worker_id(wHost, wPort)
-            if (workerID in self.lastBeat and time.time() - self.lastBeat["workerID"] >= 10) :
-                mark_worker_dead(wHost, wPort)
-            self.lastBeat["workerID"] = time.time()
-            #still need to create a function to reassign works of dead workers
+            while self.shutdown is False: 
+                try:
+                    message_bytes = sock.recv(4096)
+                except socket.timeout:
+                    continue
+                message_str = message_bytes.decode("utf-8")
+                message_dict = json.loads(message_str)
+                #looping through workers and if one has not for 10s mark as dead
+                wHost = message_dict["worker_host"]
+                wPort = messsage_dict["worker_port"]
+                workerID = self.get_worker_id(wHost, wPort)
+                if (workerID in self.lastBeat and time.time() - self.lastBeat["workerID"] >= 10) :
+                    mark_worker_dead(wHost, wPort)
+                self.lastBeat["workerID"] = time.time()
+                #still need to create a function to reassign works of dead workers
 
     #for heartbeat check: need to get id:
     def get_worker_id(self, host, port) :
