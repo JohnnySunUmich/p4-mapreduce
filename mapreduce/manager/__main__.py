@@ -44,6 +44,10 @@ class Manager:
         shutdown_thread = threading.Thread(target=self.listen_messages)
         shutdown_thread.start()
         #when shutdown is that need to wait for all threads to complete or terminate all?
+        if (self.shutdown == True) :
+            main_thread.join()
+            heartbeat_thread.join()
+            shutdown_thread.join()
     
     #create an inner class of Worker:
     class Worker:
