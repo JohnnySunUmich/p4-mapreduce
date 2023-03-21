@@ -23,11 +23,13 @@ class Manager:
         self.host = host
         self.port = port
         self.shutdown = False
+        self.state = "ready"
         #create a list for workers that are registered to it
         self.workers = [] #an array of dictionary 
         self.workerCount = 0 #should there be an worker_id in the dictionary for the quick access?
         self.freeWorkers = Queue() #all the workers that are ready
         self.jobCount = 0 #used for job_id
+        self.jobQueue = Queue() #all the workers that are ready
         #create a dictionary for each worker's last time sending heartbeat:
         #use worker_id as key:
         self.lastBeat = {}
@@ -44,6 +46,7 @@ class Manager:
             sock.settimeout(1)
             #handle things here that while not shutting down 
             while self.shutdown is not True:
+                # TODO: check the job queue
                 # Wait for a connection for 1s.  The socket library avoids consuming
                 # CPU while waiting for a connection.
                 try:
@@ -119,21 +122,45 @@ class Manager:
     #a function to handle job request:
     def handle_job_request(self, message_dict):
         #first assign a job id
+        job_id = self.jobCount
         self.jobCount += 1
-        #create temp dir need to call both mapping and reducing inside it:
-        prefix = f"mapreduce-shared-job{self.job_id:05d}-"
-        with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
-            self.partition_mapping(message_dict, tempdir)
-            #how to determine when to process to the reducing stage?
-            #how to know if all the workers sent receive message
-            self.reducing(message_dict, tempdir)
+        message_dict["job_id"] = job_id
+
+        # TODO: check correctness
+
+        if(self.get_free_workers() == True):
+            #create temp dir need to call both mapping and reducing inside it:
+            self.state = "executing"
+
+            # TODO: global message_dict? tempdir?
+            prefix = f"mapreduce-shared-job{self.job_id:05d}-"
+            with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
+                LOGGER.info("Created tmpdir %s", tmpdir)
+                # FIXME: Change this loop so that it runs either until shutdown 
+                # or when the job is completed.
+                
+                self.partition_mapping(message_dict, tmpdir)
+                #how to determine when to process to the reducing stage?
+                #how to know if all the workers sent receive message
+                self.reducing(message_dict, tmpdir)
+                while True:
+                    time.sleep(0.1)
+            LOGGER.info("Cleaned up tmpdir %s", tmpdir)
+                
+        else:
+            self.jobQueue.put(message_dict)
 
     
     def get_free_workers(self) :
+        have_free_workers = False
         self.freeWorkers.queue.clear()
         for worker in self.workers :
             if worker["state"] is "ready" :
+                have_free_workers = True
                 self.freeWorkers.put(worker)
+        if have_free_workers and self.state == "ready" :
+            return True
+        return False
 
     def sorting(self, input_list, numTasks, numFiles, tasks) :
         #create numTasks of lists and add them to the list of tasks
