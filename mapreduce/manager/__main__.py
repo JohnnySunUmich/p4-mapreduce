@@ -31,6 +31,7 @@ class Manager:
         self.taskState = "" #track if it si tasking state or reducing state
         self.receiveCount = 0 #track the finished map job
         self.job_queue = Queue() #for pending jobs to be exevute 
+
         #start running the main thing : 
         #for three things be at the same time : shutdown/ job running/ heartbeat
         heartbeat_thread = threading.Thread(target=self.listen_hb)
@@ -91,7 +92,6 @@ class Manager:
                 #and then determine if a message does something 
                 message_type = message_dict["message_type"]
                 if message_type == "new_manager_job" :
-                    self.jobCount += 1
                     self.handle_job_request(message_dict)
                 elif message_type == "register" :
                     self.handle_register(message_dict)
@@ -308,6 +308,7 @@ class Manager:
                 message = json.dumps({
                     "message_type" : "re_map",
                     "input_paths" : task_file
+
                 })
             elif self.taskState == "reducing" :
                 message = json.dumps({
