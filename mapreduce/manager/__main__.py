@@ -32,6 +32,8 @@ class Manager:
         self.taskState = "" #track if it si tasking state or reducing state
         self.receiveCount = 0 #track the finished map job
         self.job_queue = Queue() #for pending jobs to be exevute 
+        self.currentJob = {} #for reassign
+        self.tempDir = "" #for reassign
         #start running the main thing : 
         #for three things be at the same time : shutdown/ job running/ heartbeat
         heartbeat_thread = threading.Thread(target=self.listen_hb)
