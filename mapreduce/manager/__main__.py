@@ -25,7 +25,7 @@ class Manager:
         #create a list for workers that are registered to it
         self.workers = {} #a dictionary of worker objects
         self.workerCount = 0 #should there be an worker_id in the dictionary for the quick access?
-        self.freeWorkers = Queue() #all the workers that are ready
+        self.freeWorkers = {} #all the workers that are ready
         self.jobCount = 0 #used for job_id
         #create a dictionary for each worker's last time sending heartbeat:
         #use worker_id as key
@@ -186,11 +186,11 @@ class Manager:
 
     def get_free_workers(self) :
         have_free_workers = False 
-        self.freeWorkers.queue.clear() 
-        for worker in self.workers : #when iterate, worker is the key
-            if self.workers[worker].state == "ready" :
+        self.freeWorkers.clear() #first empty the free worker dictionary
+        for workerID, worker in self.workers.items() : #when iterate, worker is the key
+            if worker.state == "ready" :
                 have_free_workers = True
-                self.freeWorkers.put(worker)
+                self.freeWorkers[workerID] = worker
         if have_free_workers and self.manager_state == "ready" :
             return True
         return False
@@ -215,7 +215,7 @@ class Manager:
     def partition_mapping(self, message_dict, tmpdir) :
         task_id = 0
         self.get_free_workers()
-        mappers = [] #list of dic/pair
+        mappers = {} #a dictionary
         input_directory = message_dict["input_directory"]
         input_list = os.listdir(input_directory)
         numTasks = message_dict["num_mappers"]
@@ -223,9 +223,11 @@ class Manager:
         executable = message_dict["mapper_executable"]
         numFiles = len(input_list)
         #find available workers in from the free worker queue :
-        for _ in range(numTasks) :
-            curr = self.freeWorkers.get()
-            mappers.append(curr) #change this to 
+        #break the for loop when the size of mappers == numTasks
+        for ID, free in self.freeWorkers.items():
+            mappers[ID] = free
+            if len(mappers) == numTasks :
+                break
         
         tasks = [] #a list of lists
         #sort the files and tasks:
@@ -233,28 +235,25 @@ class Manager:
         #after calling this sorting function 
         #tasks will be a list of lists
         index = 0 #use for accessing the list of tasks
-        for mapper in mappers :
-            LOGGER.info("go into mapper")
-            for workerID, worker in mapper.items() :
-                LOGGER.info("start sending")
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                    host = worker.worker_host
-                    port = worker.worker_port
-                    sock.connect((host, port))
-                    self.update_busy(workerID) #update worker's state to busy
-                    self.workers[workerID].tasks.append(tasks[index])
-                    worker.tasks.append(tasks[index])
-                    message = json.dumps({
-                        "message_type" : "new_map_task",
-                        "task_id" : task_id,
-                        "input_path" : tasks[index], #list of strings/filenames
-                        "executable" : executable,
-                        "output_directory" : tmpdir,
-                        "num_partitions" : num_reducers,
-                        "worker_host" : host,
-                        "worker_port" : port
-                    })
-                    sock.sendall(message.encode('utf-8'))
+        for mapper_id, mapper in mappers.items() :
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                host = mapper.worker_host
+                port = mapper.worker_port
+                sock.connect((host, port))
+                self.update_busy(mapper_id) #update worker's state to busy
+                self.workers[mapper_id].tasks.append(tasks[index])
+                mapper.tasks.append(tasks[index])
+                message = json.dumps({
+                    "message_type" : "new_map_task",
+                    "task_id" : task_id,
+                    "input_path" : tasks[index], #list of strings/filenames
+                    "executable" : executable,
+                    "output_directory" : tmpdir,
+                    "num_partitions" : num_reducers,
+                    "worker_host" : host,
+                    "worker_port" : port
+                })
+                sock.sendall(message.encode('utf-8'))
             task_id += 1
             index += 1
         self.taskState = "mapping"
@@ -264,7 +263,7 @@ class Manager:
     def reducing(self, message_dict, tempdir) :
         task_id = 0
         self.get_free_workers()
-        reducers = []
+        reducers = {} #a dictrionary 
         #use the files in the tempdir as the input_paths(filename) to pass to workers
         #the manager also creates a temp output
         executable = message_dict["reducer_executable"]
@@ -279,32 +278,34 @@ class Manager:
         numFiles = len(allPaths)
         #do the partition job all over again here :
         #first find the workers to be reducers:
-        for _ in range(num_reducers) :
-            reducers.append(self.freeWorkers.get())
+        #stop when the size of reducers dic == num_reducers
+        for ID, free in self.freeWorkers.items() :
+            reducers[ID] = free
+            if len(reducers) == num_reducers :
+                break
         tasks = [] #a list of lists 
         #sort the files and tasks for the workers:
         self.sorting(allPaths, num_reducers, numFiles, tasks)
         index = 0 #for accessing task list
         #send the message to reducers:
-        for reducer in reducers:
-            for workerID, worker in reducer.items():
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                    host = worker.worker_host
-                    port = worker.worker_port
-                    sock.connect((host, port))
-                    self.update_busy(workerID) #update worker's state to busy
-                    self.workers[workerID].tasks.append(tasks[index])
-                    worker.tasks.append(tasks[index])
-                    message = json.dumps({
-                        "message_type" : "new_reduce_task",
-                        "task_id" : task_id,
-                        "executable" : executable,
-                        "input_paths" : tasks[index],
-                        "output_directory" : output_directory,
-                        "worker_host" : host,
-                        "worker_port" : port
-                    })
-                    sock.sendall(message.encode('utf-8'))
+        for reducer_id, reducer in reducers.items():
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                host = reducer.worker_host
+                port = reducer.worker_port
+                sock.connect((host, port))
+                self.update_busy(reducer_id) #update worker's state to busy
+                self.workers[reducer_id].tasks.append(tasks[index])
+                reducer.tasks.append(tasks[index])
+                message = json.dumps({
+                    "message_type" : "new_reduce_task",
+                    "task_id" : task_id,
+                    "executable" : executable,
+                    "input_paths" : tasks[index],
+                    "output_directory" : output_directory,
+                    "worker_host" : host,
+                    "worker_port" : port
+                })
+                sock.sendall(message.encode('utf-8'))
             task_id += 1
             index += 1
         self.taskState = "reducing"
@@ -346,7 +347,7 @@ class Manager:
     #if a worker dies, assign its tasks to the next available worker:
     def reassign_task(self, dead_id) :
         self.get_free_workers()
-        newWorker = self.freeWorkers.get()
+        newWorker = list(self.freeWorkers.items())[0]
         #the task file to be re-distributed :
         task_file = self.workers[dead_id].tasks
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
