@@ -113,44 +113,58 @@ class Worker:
     def mapping(self, message_dict) :
         executable = message_dict["executable"]
         input_paths = message_dict["input_paths"]
-        tempdir = message_dict["output_directory"]
+        output_dir = message_dict["output_directory"]
         num_partitions = message_dict["num_partitions"]
+
         #run the executable :
-        for input_path in input_paths :
-            with open(input_path) as infile:
-                with subprocess.Popen(
-                    executable,
-                    stdin=infile,
-                    stdout=subprocess.PIPE,
-                    text=True,
-                ) as map_process :
-                    for line in map_process.stdout :
-                        key = line.split("\t")[0]
-                        hexdigest = hashlib.md5(key.encode("utf-8")).hexdigest()
-                        keyhash = int(hexdigest, base=16)
-                        partition_number = keyhash % num_partitions
-                        shutil.move(infile, tempdir)
-        #after this the worker open the directory :
-        files = os.listdir(tempdir)
-        #then open each file to sort the values in each file and write back
-        for file in files :
-            with open(file) as currFile :
-                tempList = []
-                contents = currFile.read()
-                for content in contents :
-                    tempList.append(content)
-                sorted(tempList)
-                currFile.writelines(tempList)
+        prefix = f"mapreduce-local-task{message_dict['task_id']:05d}-"
+        with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
+            for input_path in input_paths :
+                with open(input_path) as infile:
+                    with subprocess.Popen(
+                        executable,
+                        stdin=infile,
+                        stdout=subprocess.PIPE,
+                        text=True,
+                    ) as map_process :
+                        for line in map_process.stdout :
+                            key = line.split("\t")[0]
+                            hexdigest = hashlib.md5(key.encode("utf-8")).hexdigest()
+                            keyhash = int(hexdigest, base=16)
+                            partition_number = keyhash % num_partitions
+                            part_file_name = f"maptask{message_dict['task_id']:05d}-part{f'{partition_number:05d}'}"
+                            part_file_path = os.path.join(tmpdir, part_file_name)
+                            with open(part_file_path, 'a+', encoding="utf-8") as part_file:
+                                part_file.write(line)
+                                part_file.close()
+                            
+            #after this the worker open the directory :
+            files = os.listdir(tmpdir)
+            #then open each file to sort the values in each file and write back
+            for file in files :
+                # TODO: check correctness
+                with open(file) as currFile :
+                    tempList = []
+                    contents = currFile.read()
+                    for content in contents :
+                        tempList.append(content)
+                    sorted(tempList)
+                    currFile.writelines(tempList)
+                    currFile.close()
+                # move sorted temp files to output dir.
+                shutil.move(os.path.join(tmpdir, file),
+                            os.path.join(output_dir, file))
+
         #now the worker sends back the finished message to the manager :
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-             sock.connect((self.manager_host, self.manager_port))
-             message = json.dumps({
+            sock.connect((self.manager_host, self.manager_port))
+            message = json.dumps({
                 "message_type" : "finished",
                 "task_id" : message_dict["task_id"],
                 "worker_host" : self.host,
                 "worker_port" : self.port
-             })
-             sock.sendall(message.encode('utf-8'))
+            })
+            sock.sendall(message.encode('utf-8'))
     
     #a functin for the reduce
     def reducing(self, message_dict) :
