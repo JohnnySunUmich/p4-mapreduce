@@ -157,7 +157,7 @@ class Manager:
         LOGGER.info('Registered Worker (%s, %s)', workerHost, workerPort)
     
     def handle_shutdown(self) :
-        for worker in self.workers :
+        for worker in self.workers.values() :
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 sock.connect((worker.worker_host, worker.worker_port))
                 message = json.dumps({
