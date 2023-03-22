@@ -32,6 +32,7 @@ class Worker:
         send_hb_thread = threading.Thread(target=self.send_heartbeat)
         send_hb_thread.start()
         self.listen()
+        send_hb_thread.join()
 
     #a function to listen to the manager's tcp message :
     def listen(self) :
