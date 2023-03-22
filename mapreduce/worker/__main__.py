@@ -136,7 +136,8 @@ class Worker:
                                 part_file.close()
                             
             #after this the worker open the directory :
-            files = os.listdir(tmpdir)
+            os.chdir(tmpdir)
+            files = os.listdir()
             #then open each file to sort the values in each file and write back
             for file in files :
                 # TODO: check correctness
