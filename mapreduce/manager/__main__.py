@@ -169,7 +169,7 @@ class Manager:
 
     #a function to handle job request:
     def handle_job_request(self, message_dict):
-        print("manager eceived new job ")
+        print("manager received new job ")
         #first assign a job id
         job_id = self.jobCount
         self.jobCount += 1
