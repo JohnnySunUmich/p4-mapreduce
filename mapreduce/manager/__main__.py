@@ -116,6 +116,24 @@ class Manager:
                     if self.taskState == "mapping" :
                         self.receiveCount += 1
 
+    #a function to handle job request:
+    def handle_job_request(self, message_dict):
+        print("manager received new job ")
+        #first assign a job id
+        job_id = self.jobCount
+        self.jobCount += 1
+        message_dict["job_id"] = job_id
+        output_dir = message_dict["output_directory"]
+        # delete output directory if exists
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+            LOGGER.info("deleted output directory %s", output_dir)
+        # create output directory
+        os.makedirs(output_dir)
+        LOGGER.info("Created output directory %s", output_dir)
+        self.job_queue.put(message_dict)
+        print("added new job to job queue")
+
     def check_job_queue(self):
         # TODO: make this a new thread?
         print ("starting checking job queue")
@@ -171,24 +189,6 @@ class Manager:
                 })
                 sock.sendall(message.encode('utf-8'))
         self.shutdown = True
-
-    #a function to handle job request:
-    def handle_job_request(self, message_dict):
-        print("manager received new job ")
-        #first assign a job id
-        job_id = self.jobCount
-        self.jobCount += 1
-        message_dict["job_id"] = job_id
-        output_dir = message_dict["output_directory"]
-        # delete output directory if exists
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
-            LOGGER.info("deleted output directory %s", output_dir)
-        # create output directory
-        os.makedirs(output_dir)
-        LOGGER.info("Created output directory %s", output_dir)
-        self.job_queue.put(message_dict)
-        print("added new job to job queue")
 
     def get_free_workers(self) :
         have_free_workers = False 
