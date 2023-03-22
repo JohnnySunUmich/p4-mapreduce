@@ -43,12 +43,12 @@ class Manager:
         #the main thread for listening for message:
         main_thread  = threading.Thread(target=self.listen_messages)
         main_thread.start()
-        checking_thread  = threading.Thread(target=self.check_job_queue)
-        checking_thread.start()
+        #checking_thread  = threading.Thread(target=self.check_job_queue)
+        #checking_thread.start()
         #shutdown_thread = threading.Thread(target=self.listen_messages)
         #shutdown_thread.start()
         #when shutdown is that need to wait for all threads to complete or terminate all?
-        checking_thread.join()
+        #checking_thread.join()
         main_thread.join()
         #heartbeat_thread.join()
         #shutdown_thread.join()
@@ -73,6 +73,7 @@ class Manager:
             print("Created server socket")
             #handle things here that while not shutting down 
             while self.shutdown is not True:
+                self.check_job_queue()
                 # check job_queue
                 
                 # Wait for a connection for 1s.  The socket library avoids consuming
@@ -110,8 +111,10 @@ class Manager:
                     self.handle_job_request(message_dict)
                 elif message_type == "register" :
                     self.handle_register(message_dict)
+                    # TODO: check succcess?
                 elif message_type == "shutdown" :
                     self.handle_shutdown()
+                    break
                 elif message_type == "finished" :
                     #first change the worker's state to ready again:
                     pid = self.get_worker_id(message_dict["worker_host"], message_dict["worker_port"])
@@ -139,27 +142,27 @@ class Manager:
 
     def check_job_queue(self):
         # TODO: make this a new thread?
-        while self.shutdown is not True:
-            print ("starting checking job queue")
-            print (self.job_queue.empty())
-            print (self.manager_state)
-            print (self.get_free_workers())
-            if (not self.job_queue.empty()) and self.manager_state == 'ready':
-                print ("running a job!")
-                self.manager_state = "busy"
-                self.get_free_workers() #TODO: needed here?
-                message_dict = self.job_queue.get()
-                self.currentJob = message_dict
-                #create temp dir need to call both mapping and reducing inside it:
-                prefix = f"mapreduce-shared-job{message_dict['job_id']:05d}-"
-                with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
-                    LOGGER.info("Created tmpdir %s", tmpdir)
-                    self.tempDir = tmpdir
+        print ("starting checking job queue")
+        print (self.job_queue.empty())
+        print (self.manager_state)
+        print (self.get_free_workers())
+        if (not self.job_queue.empty()) and self.manager_state == 'ready' and self.get_free_workers():
+            print ("running a job!")
+            self.manager_state = "busy"
+            # self.get_free_workers() #TODO: needed here?
+            message_dict = self.job_queue.get()
+            self.currentJob = message_dict
+            #create temp dir need to call both mapping and reducing inside it:
+            prefix = f"mapreduce-shared-job{message_dict['job_id']:05d}-"
+            with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
+                LOGGER.info("Created tmpdir %s", tmpdir)
+                self.tempDir = tmpdir
+                while (self.have_busy_workers()): #TODO: check tasks?
                     self.partition_mapping(message_dict, tmpdir)
                     if self.receiveCount == message_dict["num_mappers"]:
                         self.reducing(message_dict, tmpdir)
-                LOGGER.info("Cleaned up tmpdir %s", tmpdir)
-                self.manager_state = "ready"
+            LOGGER.info("Cleaned up tmpdir %s", tmpdir)
+            self.manager_state = "ready"
 
     #a function to handle registering workers:
     def handle_register(self, dic) :
@@ -186,12 +189,15 @@ class Manager:
     
     def handle_shutdown(self) :
         for worker in self.workers.values() :
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.connect((worker.worker_host, worker.worker_port))
-                message = json.dumps({
-                    "message_type" : "shutdown"
-                })
-                sock.sendall(message.encode('utf-8'))
+            if worker.state != "dead":
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.connect((worker.worker_host, worker.worker_port))
+                    message = json.dumps({
+                        "message_type" : "shutdown"
+                    })
+                    sock.sendall(message.encode('utf-8'))
+                    # TODO: check if success
+                worker.state = "dead"
         self.shutdown = True
 
     def get_free_workers(self) :
@@ -202,6 +208,13 @@ class Manager:
                 have_free_workers = True
                 self.freeWorkers[workerID] = worker
         return have_free_workers
+    
+    def have_busy_workers(self):
+        """Check if mapping tasks are going ."""
+        for worker in self.workers.values():
+            if worker.state == "busy":
+                return True
+        return False
 
     def sorting(self, input_list, numTasks, numFiles, tasks) :
         #create numTasks of lists and add them to the list of tasks
