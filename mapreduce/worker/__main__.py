@@ -141,14 +141,15 @@ class Worker:
             #then open each file to sort the values in each file and write back
             for file in files :
                 # TODO: check correctness
-                with open(file) as currFile :
+                with open(file, 'r') as currFile :
                     tempList = []
                     contents = currFile.read()
                     for content in contents :
                         tempList.append(content)
-                    sorted(tempList)
-                    currFile.writelines(tempList)
-                    currFile.close()
+                    tempList.sort()
+                    with open(file, 'w') as currFile :
+                        currFile.writelines(tempList)
+                        currFile.close()
                 # move sorted temp files to output dir.
                 shutil.move(os.path.join(tmpdir, file),
                             os.path.join(output_dir, file))
