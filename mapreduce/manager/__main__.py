@@ -119,19 +119,24 @@ class Manager:
     def check_job_queue(self):
         # TODO: make this a new thread?
         print ("starting checking job queue")
-        if (not self.job_queue.empty()) and self.manager_state == 'ready' and self.get_free_workers() == True:
+        print (self.job_queue.empty())
+        print (self.manager_state)
+        print (self.get_free_workers())
+        if (not self.job_queue.empty()) and self.manager_state == 'ready':
             print ("running a job!")
             self.manager_state = "busy"
+            self.get_free_workers() #TODO: needed here?
             message_dict = self.job_queue.get()
             self.currentJob = message_dict
             #create temp dir need to call both mapping and reducing inside it:
             prefix = f"mapreduce-shared-job{message_dict['job_id']:05d}-"
             with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
-                LOGGER.info("Created temp dir %s", tmpdir)
+                LOGGER.info("Created tmpdir %s", tmpdir)
                 self.tempDir = tmpdir
                 self.partition_mapping(message_dict, tmpdir)
                 if self.receiveCount == message_dict["num_mappers"]:
                     self.reducing(message_dict, tmpdir)
+            LOGGER.info("Cleaned up tmpdir %s", tmpdir)
             self.manager_state = "ready"
 
     #a function to handle registering workers:
@@ -183,6 +188,7 @@ class Manager:
         os.makedirs(output_dir)
         LOGGER.info("Created output directory %s", output_dir)
         self.job_queue.put(message_dict)
+        print("added new job to job queue")
 
     def get_free_workers(self) :
         have_free_workers = False 
@@ -191,9 +197,7 @@ class Manager:
             if worker.state == "ready" :
                 have_free_workers = True
                 self.freeWorkers[workerID] = worker
-        if have_free_workers and self.manager_state == "ready" :
-            return True
-        return False
+        return have_free_workers
 
     def sorting(self, input_list, numTasks, numFiles, tasks) :
         #create numTasks of lists and add them to the list of tasks
@@ -209,7 +213,7 @@ class Manager:
         self.workers[worker_id].state = "busy"
 
     def update_ready(self, worker_id) :
-        self.workers[worker_id] = "ready"
+        self.workers[worker_id].state = "ready"
         
     #for mapping:
     def partition_mapping(self, message_dict, tmpdir) :
