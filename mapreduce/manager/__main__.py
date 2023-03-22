@@ -117,13 +117,18 @@ class Manager:
                     self.handle_shutdown()
                     break
                 elif message_type == "finished" :
+                    print("received finished message")
                     #first change the worker's state to ready again:
                     pid = self.get_worker_id(message_dict["worker_host"], message_dict["worker_port"])
                     self.update_ready(pid)
                     if self.taskState == "mapping" :
                         self.receiveCount += 1
+                        if self.receiveCount == self.currentJob["num_mappers"]:
+                            self.taskState = "map_finished"
                     elif self.taskState == "reducing" :
                         self.finishCount += 1
+                        if self.finishCount == self.currentJob["num_reducers"]:
+                            self.taskState = "reduce_finished"
 
 
     #a function to handle job request:
@@ -161,11 +166,13 @@ class Manager:
             with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
                 LOGGER.info("Created tmpdir %s", tmpdir)
                 self.tempDir = tmpdir
-                while (self.have_busy_workers()): #TODO: check tasks?
+                while (self.taskState != "complete" and self.shutdown == False): #TODO: check tasks?
+                    time.sleep(0.1)
                     self.partition_mapping(message_dict, tmpdir)
-                    if self.receiveCount == message_dict["num_mappers"]:
+                    print(self.taskState)
+                    if self.taskState == "map_finished":
                         self.reducing(message_dict, tmpdir)
-                        if self.finishCount == message_dict["num_reducers"]:
+                        if self.taskState == "reduce_finished":
                             self.taskState = "complete"
             LOGGER.info("Cleaned up tmpdir %s", tmpdir)
             self.manager_state = "ready"
@@ -214,13 +221,6 @@ class Manager:
                 have_free_workers = True
                 self.freeWorkers[workerID] = worker
         return have_free_workers
-    
-    def have_busy_workers(self):
-        """Check if mapping tasks are going ."""
-        for worker in self.workers.values():
-            if worker.state == "busy":
-                return True
-        return False
 
     def sorting(self, input_list, numTasks, numFiles, tasks) :
         #create numTasks of lists and add them to the list of tasks
