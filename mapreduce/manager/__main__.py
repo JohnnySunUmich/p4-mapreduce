@@ -7,6 +7,7 @@ import threading
 import json
 import time
 import click
+import shutil
 from queue import Queue
 
 
@@ -59,12 +60,14 @@ class Manager:
 
     #a function for listening to non-heartbeat incoming messages :
     def listen_messages(self) :
+        print("listening messages")
         #use TCP
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind((self.host, self.port)) 
             sock.listen()
             sock.settimeout(1)
+            print("Created server socket")
             #handle things here that while not shutting down 
             while self.shutdown is not True:
                 # check job_queue
@@ -97,6 +100,7 @@ class Manager:
                     message_dict = json.loads(message_str)
                 except json.JSONDecodeError:
                     continue
+                print(address)
                 #and then determine if a message does something 
                 message_type = message_dict["message_type"]
                 if message_type == "new_manager_job" :
@@ -113,20 +117,26 @@ class Manager:
                         self.receiveCount += 1
 
     def check_job_queue(self):
+        # TODO: make this a new thread?
+        print ("starting checking job queue")
         if (not self.job_queue.empty()) and self.manager_state == 'ready' and self.get_free_workers() == True:
+            print ("running a job!")
             self.manager_state = "busy"
             message_dict = self.job_queue.get()
             self.currentJob = message_dict
+            #create temp dir need to call both mapping and reducing inside it:
             prefix = f"mapreduce-shared-job{message_dict['job_id']:05d}-"
             with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
+                LOGGER.info("Created temp dir %s", tmpdir)
                 self.tempDir = tmpdir
                 self.partition_mapping(message_dict, tmpdir)
                 if self.receiveCount == message_dict["num_mappers"]:
                     self.reducing(message_dict, tmpdir)
-
+            self.manager_state = "ready"
 
     #a function to handle registering workers:
     def handle_register(self, dic) :
+        print("start handling register")
         #first get the worker host and port
         workerHost = dic["worker_host"]
         workerPort = dic["worker_port"]
@@ -145,6 +155,7 @@ class Manager:
         worker = self.Worker(workerHost, workerPort, "ready",[])
         self.workers[worker_id] = worker
         self.workerCount += 1
+        LOGGER.info('Registered Worker (%s, %s)', workerHost, workerPort)
     
     def handle_shutdown(self) :
         for worker in self.workers :
@@ -158,23 +169,20 @@ class Manager:
 
     #a function to handle job request:
     def handle_job_request(self, message_dict):
+        print("manager eceived new job ")
         #first assign a job id
         job_id = self.jobCount
         self.jobCount += 1
         message_dict["job_id"] = job_id
-        # TODO: check correctness
-        #create temp dir need to call both mapping and reducing inside it:
-        if (self.get_free_workers() == True):
-            self.currentJob = message_dict
-            self.manager_state = "busy"
-            prefix = f"mapreduce-shared-job{job_id:05d}-"
-            with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
-                self.tempDir = tmpdir
-                self.partition_mapping(message_dict, tmpdir)
-                if self.receiveCount == message_dict["num_mappers"]:
-                    self.reducing(message_dict, tmpdir)
-        else:
-            self.job_queue.put(message_dict)
+        output_dir = message_dict["output_directory"]
+        # delete output directory if exists
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+            LOGGER.info("deleted output directory %s", output_dir)
+        # create output directory
+        os.makedirs(output_dir)
+        LOGGER.info("Created output directory %s", output_dir)
+        self.job_queue.put(message_dict)
 
     def get_free_workers(self) :
         have_free_workers = False 
