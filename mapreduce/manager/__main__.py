@@ -43,9 +43,12 @@ class Manager:
         #the main thread for listening for message:
         main_thread  = threading.Thread(target=self.listen_messages)
         main_thread.start()
+        checking_thread  = threading.Thread(target=self.check_job_queue)
+        checking_thread.start()
         #shutdown_thread = threading.Thread(target=self.listen_messages)
         #shutdown_thread.start()
         #when shutdown is that need to wait for all threads to complete or terminate all?
+        checking_thread.join()
         main_thread.join()
         #heartbeat_thread.join()
         #shutdown_thread.join()
@@ -71,7 +74,7 @@ class Manager:
             #handle things here that while not shutting down 
             while self.shutdown is not True:
                 # check job_queue
-                self.check_job_queue()
+                
                 # Wait for a connection for 1s.  The socket library avoids consuming
                 # CPU while waiting for a connection.
                 try:
@@ -136,26 +139,27 @@ class Manager:
 
     def check_job_queue(self):
         # TODO: make this a new thread?
-        print ("starting checking job queue")
-        print (self.job_queue.empty())
-        print (self.manager_state)
-        print (self.get_free_workers())
-        if (not self.job_queue.empty()) and self.manager_state == 'ready':
-            print ("running a job!")
-            self.manager_state = "busy"
-            self.get_free_workers() #TODO: needed here?
-            message_dict = self.job_queue.get()
-            self.currentJob = message_dict
-            #create temp dir need to call both mapping and reducing inside it:
-            prefix = f"mapreduce-shared-job{message_dict['job_id']:05d}-"
-            with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
-                LOGGER.info("Created tmpdir %s", tmpdir)
-                self.tempDir = tmpdir
-                self.partition_mapping(message_dict, tmpdir)
-                if self.receiveCount == message_dict["num_mappers"]:
-                    self.reducing(message_dict, tmpdir)
-            LOGGER.info("Cleaned up tmpdir %s", tmpdir)
-            self.manager_state = "ready"
+        while self.shutdown is not True:
+            print ("starting checking job queue")
+            print (self.job_queue.empty())
+            print (self.manager_state)
+            print (self.get_free_workers())
+            if (not self.job_queue.empty()) and self.manager_state == 'ready':
+                print ("running a job!")
+                self.manager_state = "busy"
+                self.get_free_workers() #TODO: needed here?
+                message_dict = self.job_queue.get()
+                self.currentJob = message_dict
+                #create temp dir need to call both mapping and reducing inside it:
+                prefix = f"mapreduce-shared-job{message_dict['job_id']:05d}-"
+                with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
+                    LOGGER.info("Created tmpdir %s", tmpdir)
+                    self.tempDir = tmpdir
+                    self.partition_mapping(message_dict, tmpdir)
+                    if self.receiveCount == message_dict["num_mappers"]:
+                        self.reducing(message_dict, tmpdir)
+                LOGGER.info("Cleaned up tmpdir %s", tmpdir)
+                self.manager_state = "ready"
 
     #a function to handle registering workers:
     def handle_register(self, dic) :
