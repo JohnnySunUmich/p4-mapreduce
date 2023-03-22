@@ -135,7 +135,7 @@ class Worker:
                             part_file_name = f"maptask{message_dict['task_id']:05d}-part{f'{partition_number:05d}'}"
                             part_file_path = os.path.join(tmpdir, part_file_name)
                             with open(part_file_path, 'a+', encoding="utf-8") as part_file:
-                                part_file.write(line + '\n')
+                                part_file.write(line)
                                 part_file.close()
                             
             #after this the worker open the directory :

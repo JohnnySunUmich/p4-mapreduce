@@ -33,6 +33,7 @@ class Manager:
         self.manager_state = "ready"
         self.taskState = "" #track if it si tasking state or reducing state
         self.receiveCount = 0 #track the finished map job
+        self.finishCount = 0 #track the finished reduce job
         self.job_queue = Queue() #for pending jobs to be exevute 
         self.currentJob = {} #for reassign
         self.tempDir = "" #for reassign
@@ -121,6 +122,9 @@ class Manager:
                     self.update_ready(pid)
                     if self.taskState == "mapping" :
                         self.receiveCount += 1
+                    elif self.taskState == "reducing" :
+                        self.finishCount += 1
+
 
     #a function to handle job request:
     def handle_job_request(self, message_dict):
@@ -161,6 +165,8 @@ class Manager:
                     self.partition_mapping(message_dict, tmpdir)
                     if self.receiveCount == message_dict["num_mappers"]:
                         self.reducing(message_dict, tmpdir)
+                        if self.finishCount == message_dict["num_reducers"]:
+                            self.taskState = "complete"
             LOGGER.info("Cleaned up tmpdir %s", tmpdir)
             self.manager_state = "ready"
 
