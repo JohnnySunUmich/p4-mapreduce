@@ -38,17 +38,17 @@ class Manager:
         self.tempDir = "" #for reassign
         #start running the main thing : 
         #for three things be at the same time : shutdown/ job running/ heartbeat
-        heartbeat_thread = threading.Thread(target=self.listen_hb)
-        heartbeat_thread.start()
+        #heartbeat_thread = threading.Thread(target=self.listen_hb)
+        #heartbeat_thread.start()
         #the main thread for listening for message:
         main_thread  = threading.Thread(target=self.listen_messages)
         main_thread.start()
-        shutdown_thread = threading.Thread(target=self.listen_messages)
-        shutdown_thread.start()
+        #shutdown_thread = threading.Thread(target=self.listen_messages)
+        #shutdown_thread.start()
         #when shutdown is that need to wait for all threads to complete or terminate all?
         main_thread.join()
-        heartbeat_thread.join()
-        shutdown_thread.join()
+        #heartbeat_thread.join()
+        #shutdown_thread.join()
     
     #create an inner class of Worker:
     class Worker:

@@ -73,6 +73,7 @@ class Worker:
                 if message_type == "shutdown" :
                     self.shutdown = True
                 elif message_type == "register_ack" :
+                    print("register acknowledged")
                     self.registered = True
                     self.state = "ready"
                 elif message_type == "new_map_task" or message_type == "re_map":
@@ -91,6 +92,7 @@ class Worker:
                 "worker_port" : self.port
             })
             sock.sendall(message.encode('utf-8'))
+            print("sent register message")
     
     #send heartbeat message:
     def send_heartbeat(self) :
