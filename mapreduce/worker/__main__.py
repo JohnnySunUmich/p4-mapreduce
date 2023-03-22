@@ -125,6 +125,9 @@ class Worker:
                         text=True,
                     ) as map_process :
                         for line in map_process.stdout :
+                            line = line.strip()
+                            if not line:
+                                continue
                             key = line.split("\t")[0]
                             hexdigest = hashlib.md5(key.encode("utf-8")).hexdigest()
                             keyhash = int(hexdigest, base=16)
@@ -132,7 +135,7 @@ class Worker:
                             part_file_name = f"maptask{message_dict['task_id']:05d}-part{f'{partition_number:05d}'}"
                             part_file_path = os.path.join(tmpdir, part_file_name)
                             with open(part_file_path, 'a+', encoding="utf-8") as part_file:
-                                part_file.write(line)
+                                part_file.write(line + '\n')
                                 part_file.close()
                             
             #after this the worker open the directory :
@@ -146,7 +149,7 @@ class Worker:
                     contents = currFile.read()
                     for content in contents :
                         tempList.append(content)
-                    tempList.sort()
+                    tempList = sorted(tempList)
                     with open(file, 'w') as currFile :
                         currFile.writelines(tempList)
                         currFile.close()
