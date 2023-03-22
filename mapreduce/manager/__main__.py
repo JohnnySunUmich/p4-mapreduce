@@ -227,8 +227,8 @@ class Manager:
         for mapper in mappers :
             for workerID, worker in mapper.items() :
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                    host = mapper.worker_host
-                    port = mapper.worker_port
+                    host = worker.worker_host
+                    port = worker.worker_port
                     sock.connect((host, port))
                     self.update_busy(workerID) #update worker's state to busy
                     self.workers[workerID].tasks.append(tasks[index])
@@ -277,8 +277,8 @@ class Manager:
         for reducer in reducers:
             for workerID, worker in reducer.items():
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                    host = reducer.worker_host
-                    port = reducer.worker_port
+                    host = worker.worker_host
+                    port = worker.worker_port
                     sock.connect((host, port))
                     self.update_busy(workerID) #update worker's state to busy
                     self.workers[workerID].tasks.append(tasks[index])
