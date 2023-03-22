@@ -17,6 +17,7 @@ LOGGER = logging.getLogger(__name__)
 class Manager:
     """Represent a MapReduce framework Manager node."""
     def __init__(self, host, port):
+        LOGGER.info("Starting manager")
         """Construct a Manager instance and start listening for messages."""
         self.host = host
         self.port = port
@@ -168,7 +169,7 @@ class Manager:
 
     #a function to handle job request:
     def handle_job_request(self, message_dict):
-        print("manager eceived new job ")
+        print("manager received new job ")
         #first assign a job id
         job_id = self.jobCount
         self.jobCount += 1
@@ -184,8 +185,8 @@ class Manager:
         self.job_queue.put(message_dict)
 
     def get_free_workers(self) :
-        have_free_workers = False
-        self.freeWorkers.queue.clear()
+        have_free_workers = False 
+        self.freeWorkers.queue.clear() 
         for worker in self.workers : #when iterate, worker is the key
             if self.workers[worker].state == "ready" :
                 have_free_workers = True
@@ -214,7 +215,7 @@ class Manager:
     def partition_mapping(self, message_dict, tmpdir) :
         task_id = 0
         self.get_free_workers()
-        mappers = []
+        mappers = [] #list of dic/pair
         input_directory = message_dict["input_directory"]
         input_list = os.listdir(input_directory)
         numTasks = message_dict["num_mappers"]
@@ -224,7 +225,7 @@ class Manager:
         #find available workers in from the free worker queue :
         for _ in range(numTasks) :
             curr = self.freeWorkers.get()
-            mappers.append(curr)
+            mappers.append(curr) #change this to 
         
         tasks = [] #a list of lists
         #sort the files and tasks:
@@ -233,7 +234,9 @@ class Manager:
         #tasks will be a list of lists
         index = 0 #use for accessing the list of tasks
         for mapper in mappers :
+            LOGGER.info("go into mapper")
             for workerID, worker in mapper.items() :
+                LOGGER.info("start sending")
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                     host = worker.worker_host
                     port = worker.worker_port
@@ -255,6 +258,7 @@ class Manager:
             task_id += 1
             index += 1
         self.taskState = "mapping"
+        LOGGER.info("send map test")
     
     #for reducing:
     def reducing(self, message_dict, tempdir) :
