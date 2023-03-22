@@ -179,8 +179,8 @@ class Manager:
     def get_free_workers(self) :
         have_free_workers = False
         self.freeWorkers.queue.clear()
-        for worker in self.workers :
-            if worker.state == "ready" :
+        for worker in self.workers : #when iterate, worker is the key
+            if self.workers[worker].state == "ready" :
                 have_free_workers = True
                 self.freeWorkers.put(worker)
         if have_free_workers and self.manager_state == "ready" :
@@ -325,8 +325,8 @@ class Manager:
                 #still need to create a function to reassign works of dead workers
     
     def get_worker_id(self, host, port) :
-        for pid, worker in self.workers.item() :
-            if worker.worker_host == host and worker.worker_port == port :
+        for pid in self.workers:
+            if self.workers[pid].worker_host == host and self.workers[pid].worker_port == port :
                 return pid
 
     def mark_worker_dead(self, dead_id) :
