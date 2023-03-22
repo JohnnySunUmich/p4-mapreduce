@@ -44,10 +44,9 @@ class Manager:
         shutdown_thread = threading.Thread(target=self.listen_messages)
         shutdown_thread.start()
         #when shutdown is that need to wait for all threads to complete or terminate all?
-        if (self.shutdown == True) :
-            main_thread.join()
-            heartbeat_thread.join()
-            shutdown_thread.join()
+        main_thread.join()
+        heartbeat_thread.join()
+        shutdown_thread.join()
     
     #create an inner class of Worker:
     class Worker:
@@ -325,7 +324,7 @@ class Manager:
                 #still need to create a function to reassign works of dead workers
     
     def get_worker_id(self, host, port) :
-        for pid, worker in self.workers.item() :
+        for pid, worker in self.workers.items() :
             if worker.worker_host == host and worker.worker_port == port :
                 return pid
 
