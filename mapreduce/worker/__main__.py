@@ -6,6 +6,7 @@ import json
 import time
 import threading
 import click
+from contextlib import ExitStack
 import shutil
 import hashlib
 import tempfile
@@ -120,7 +121,7 @@ class Worker:
             for input_path in input_paths :
                 with open(input_path, encoding="utf-8") as infile:
                     with subprocess.Popen(
-                        executable,
+                        [executable],
                         stdin=infile,
                         stdout=subprocess.PIPE,
                         text=True,
@@ -173,37 +174,48 @@ class Worker:
     
     #a functin for the reduce
     def reducing(self, message_dict) :
+        print("worker start reducing")
         executable = message_dict["executable"]
         output_directory = message_dict["output_directory"]
-        #merge input files into one sorted output stream
-        instream = heapq.merge(message_dict["input_paths"])
         #need to make the task_id a 5 digit number: 
         task_id = '{:05d}'.format(message_dict["task_id"])
-
         #now deal with the outfile : 
-        with tempfile.TemporaryDirectory(prefix='mapreduce-local-task{}-'.format(task_id)) as tmp_dir2: 
-            outfile = '{}/part-{}'.format(tmp_dir2, task_id)
-            with subprocess.Popen(
-                executable,
-                text=True,
-                stdin=subprocess.PIPE,
-                stdout=outfile,
-            ) as reduce_process :
-                for line in instream:
-                    reduce_process.stdin.write(line)
-        
-        #now move the output file to the output directory:
-        shutil.move(outfile, output_directory)
+        #prefix = 'mapreduce-local-task{}-'.format(task_id)
+        prefix = f"mapreduce-local-task{message_dict['task_id']:05d}-"
+        with tempfile.TemporaryDirectory(prefix=prefix) as tmp_dir2:
+            #merge input files into one sorted output stream
+            with ExitStack() as stack:
+                files_opened = []
+                for file in message_dict["input_paths"]:
+                    files_opened.append(stack.enter_context(open(file,
+                                        encoding="utf-8")))
+                instream = heapq.merge(*files_opened) 
+                outfile_str = '{}/part-{}'.format(tmp_dir2, task_id)
+                #outfile_str = tmp_dir2 + '/' + f"part-{message_dict['task_id']:05d}"
+                with open(outfile_str, "w", encoding="utf-8") as outfile:
+                    with subprocess.Popen(
+                        [executable],
+                        text=True,
+                        stdin=subprocess.PIPE,
+                        stdout=outfile,
+                    ) as reduce_process :
+                        for line in instream:
+                            # print(line)
+                            reduce_process.stdin.write(line)
+                    #now move the output file to the output directory:
+                    shutil.move(outfile_str , output_directory)
+        print("worker finish reducing")
+
         #then send the finish message back to the manager:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-             sock.connect((self.manager_host, self.manager_port))
-             message = json.dumps({
+            sock.connect((self.manager_host, self.manager_port))
+            message = json.dumps({
                 "message_type" : "finished",
                 "task_id" : message_dict["task_id"],
                 "worker_host" : self.host,
                 "worker_port" : self.port
-             })
-             sock.sendall(message.encode('utf-8'))
+            })
+            sock.sendall(message.encode('utf-8'))
 
 
 @click.command()

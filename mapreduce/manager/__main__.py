@@ -28,9 +28,12 @@ class Manager:
         self.workerCount = 0 #should there be an worker_id in the dictionary for the quick access?
         self.freeWorkers = {} #all the workers that are ready
         self.jobCount = 0 #used for job_id
-        self.task_id = 0
-        self.tasks = []
-        self.num_remaining_tasks = 0
+        self.map_task_id = 0
+        self.map_tasks = []
+        self.reduce_task_id = 0
+        self.reduce_tasks = []
+        self.num_remaining_map_tasks = 0
+        self.num_remaining_reduce_tasks = 0
         #create a dictionary for each worker's last time sending heartbeat:
         #use worker_id as key
         self.lastBeat = {}
@@ -195,20 +198,24 @@ class Manager:
                 with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
                     LOGGER.info("Created tmpdir %s", tmpdir)
                     self.tempDir = tmpdir
-                    while (self.taskState == "begin" and self.shutdown == False): #TODO: check tasks?
+                    while (self.taskState == "begin" and self.shutdown == False): 
                         time.sleep(0.1)
                         print(self.taskState)
                         self.partition_mapping(message_dict, tmpdir)
-                    while (self.taskState == "mapping" and self.shutdown == False): #TODO: check tasks?
+                    while (self.taskState == "mapping" and self.shutdown == False): 
                         time.sleep(0.1)
                         print(self.taskState)
                         if self.get_free_workers() is True:
                             self.assign_map_work(message_dict, tmpdir)
-                    while (self.taskState == "map_finished" and self.shutdown == False): #TODO: check tasks?
+                    while (self.taskState == "map_finished" and self.shutdown == False): 
                         time.sleep(0.1)
                         print(self.taskState)
-                        # self.partitioning?
-                        self.reducing(message_dict, tmpdir)
+                        self.partition_reducing(message_dict, tmpdir)
+                    while (self.taskState == "reducing" and self.shutdown == False): 
+                        time.sleep(0.1)
+                        print(self.taskState)
+                        if self.get_free_workers() is True:
+                            self.assign_reduce_work(message_dict, tmpdir)
                     # if self.taskState == "reduce_finished":
                     #        self.taskState = "complete"
                 LOGGER.info("Cleaned up tmpdir %s", tmpdir)
@@ -283,8 +290,8 @@ class Manager:
         
     #for mapping:
     def partition_mapping(self, message_dict, tmpdir) :
-        self.task_id = 0
-        self.tasks = []
+        self.map_task_id = 0
+        self.map_tasks = []
         #input_directory = message_dict["input_directory"]
         #input_list = os.listdir(input_directory)
         input_path = pathlib.Path(message_dict["input_directory"])
@@ -292,35 +299,35 @@ class Manager:
         for file in input_path.iterdir():
             input_list.append(str(file))
         num_needed_mappers = message_dict["num_mappers"]
-        self.num_remaining_tasks = num_needed_mappers
+        self.num_remaining_map_tasks = num_needed_mappers
         numFiles = len(input_list)
 
         #sort the files and tasks:
         # TODO: check correctness?
-        self.sorting(input_list, num_needed_mappers, numFiles, self.tasks)
+        self.sorting(input_list, num_needed_mappers, numFiles, self.map_tasks)
         print("finished partioning tasks")
         #now tasks have num_needed_mappers entries
         self.assign_map_work(message_dict, tmpdir)
 
     def assign_map_work(self, message_dict, tmpdir) :
-        print("starting assigning tasks")
+        print("starting assigning map tasks")
         num_reducers = message_dict["num_reducers"]
         executable = message_dict["mapper_executable"]
         self.get_free_workers()
         #find available workers in from the free worker queue :
-        #break the for loop when num_remaining_tasks == 0
+        #break the for loop when num_remaining_map_tasks == 0
         new_mappers = {} #a dictionary
         for ID, free in self.freeWorkers.items():
             new_mappers[ID] = free
-            self.num_remaining_tasks -= 1
-            if self.num_remaining_tasks == 0 :
+            self.num_remaining_map_tasks -= 1
+            if self.num_remaining_map_tasks == 0 :
                 break
         print("finished choosing mappers, now num of new mappers:")
         print(len(new_mappers))
-        print("num_remaining_tasks:")
-        print(self.num_remaining_tasks)
+        print("num_remaining_map_tasks:")
+        print(self.num_remaining_map_tasks)
 
-        #tasks will be a list of lists
+        #tasks will be a list of (list of filename strings)
         #now tasks have num_needed_mappers entries
         for mapper_id, mapper in new_mappers.items() :
             print("Assigning tasks to mappers")
@@ -329,12 +336,12 @@ class Manager:
                 port = mapper.worker_port
                 sock.connect((host, port))
                 self.update_busy(mapper_id) #update worker's state to busy
-                self.workers[mapper_id].tasks.append(self.tasks[self.task_id])
-                mapper.tasks.append(self.tasks[self.task_id])
+                self.workers[mapper_id].tasks.append(self.map_tasks[self.map_task_id])
+                mapper.tasks.append(self.map_tasks[self.map_task_id])
                 message = json.dumps({
                     "message_type" : "new_map_task",
-                    "task_id" : self.task_id,
-                    "input_paths" : self.tasks[self.task_id], #list of filename strings
+                    "task_id" : self.map_task_id,
+                    "input_paths" : self.map_tasks[self.map_task_id], #list of filename strings
                     "executable" : executable,
                     "output_directory" : tmpdir,
                     "num_partitions" : num_reducers,
@@ -343,60 +350,80 @@ class Manager:
                 })
                 print(message)
                 sock.sendall(message.encode('utf-8'))
-            self.task_id += 1
+            self.map_task_id += 1
 
         self.taskState = "mapping"
         LOGGER.info("send map test")
     
     #for reducing:
-    def reducing(self, message_dict, tempdir) :
-        task_id = 0
+    def partition_reducing(self, message_dict, tmpdir) :
+        self.reduce_task_id = 0
+        self.rudece_tasks = []
+        
+
+        #open the tempdir it create and use the filename inside
+        #use str(file) to turn the file name just to string
+
+        #temp_path = pathlib.Path(tmpdir)
+        allPaths = []
+        for file in tmpdir.iterdir() :
+            allPaths.append(str(file))
+
+        num_needed_reducers = message_dict["num_reducers"]
+        self.num_remaining_map_tasks =  num_needed_reducers
+        numFiles = len(allPaths)
+
+        #sort the files and tasks for the workers:
+        self.sorting(allPaths, num_needed_reducers, numFiles, self.reduce_tasks)
+        print("finished partioning tasks")
+        #now tasks have num_needed_mappers entries
+        self.assign_reduce_work(message_dict, tmpdir)
+
+    def assign_reduce_work(self, message_dict, tmpdir) :
+        print("starting assigning reduce tasks")
         self.get_free_workers()
-        reducers = {} #a dictrionary 
+        new_reducers = {} #a dictrionary 
+        #do the partition job all over again here :
+        #first find the workers to be reducers:
+        #stop when num_remaining_reduce_tasks == 0
+        for ID, free in self.freeWorkers.items() :
+            new_reducers[ID] = free
+            self.num_remaining_reduce_tasks -= 1
+            if self.num_remaining_reduce_tasks == 0 :
+                break
+        print("finished choosing reducers, now num of new reducers:")
+        print(len(new_reducers))
+        print("num_remaining_reduce_tasks:")
+        print(self.num_remaining_reduce_tasks)
         #use the files in the tempdir as the input_paths(filename) to pass to workers
         #the manager also creates a temp output
         executable = message_dict["reducer_executable"]
-        num_reducers = message_dict["num_reducers"]
         output_directory = message_dict["output_directory"]
-        #open the tempdir it create and use the filename inside
-        #use str(file) to turn the file name just to string
-        allPaths = []
-        files = os.listdir(tempdir)
-        for file in files :
-            allPaths.append(str(file))
-        numFiles = len(allPaths)
-        #do the partition job all over again here :
-        #first find the workers to be reducers:
-        #stop when the size of reducers dic == num_reducers
-        for ID, free in self.freeWorkers.items() :
-            reducers[ID] = free
-            if len(reducers) == num_reducers :
-                break
-        tasks = [] #a list of lists 
-        #sort the files and tasks for the workers:
-        self.sorting(allPaths, num_reducers, numFiles, tasks)
-        index = 0 #for accessing task list
+        
+        #tasks will be a list of (list of filename strings)
+        
         #send the message to reducers:
-        for reducer_id, reducer in reducers.items():
+        for reducer_id, reducer in new_reducers.items():
+            print("Assigning tasks to reducers")
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 host = reducer.worker_host
                 port = reducer.worker_port
                 sock.connect((host, port))
                 self.update_busy(reducer_id) #update worker's state to busy
-                self.workers[reducer_id].tasks.append(tasks[index])
-                reducer.tasks.append(tasks[index])
+                self.workers[reducer_id].tasks.append(self.reduce_tasks[self.reduce_task_id])
+                reducer.tasks.append(self.reduce_tasks[self.reduce_task_id])
                 message = json.dumps({
                     "message_type" : "new_reduce_task",
-                    "task_id" : task_id,
+                    "task_id" : self.map_task_id,
                     "executable" : executable,
-                    "input_paths" : tasks[index],
+                    "input_paths" : self.reduce_tasks[self.reduce_task_id],
                     "output_directory" : output_directory,
                     "worker_host" : host,
                     "worker_port" : port
                 })
                 sock.sendall(message.encode('utf-8'))
-            task_id += 1
-            index += 1
+            self.reduce_task_id += 1
+
         self.taskState = "reducing"
 
     #a function for listening to heartbeat messages :
