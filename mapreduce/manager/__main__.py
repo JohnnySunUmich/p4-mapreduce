@@ -44,16 +44,22 @@ class Manager:
         #for three things be at the same time : shutdown/ job running/ heartbeat
         #heartbeat_thread = threading.Thread(target=self.listen_hb)
         #heartbeat_thread.start()
+        
+        checking_thread  = threading.Thread(target=self.check_job_queue)
+        checking_thread.start()
         #the main thread for listening for message:
-        main_thread  = threading.Thread(target=self.listen_messages)
-        main_thread.start()
+        self.listen_messages()
+        
+        #main_thread  = threading.Thread(target=self.listen_messages)
+        #main_thread.start()
         #listen_new_message  = threading.Thread(target=self.listen_new_messages)
         #listen_new_message.start()
         #shutdown_thread = threading.Thread(target=self.listen_messages)
         #shutdown_thread.start()
         #when shutdown is that need to wait for all threads to complete or terminate all?
         #listen_new_message.join()
-        main_thread.join()
+        checking_thread.join()
+        #main_thread.join()
         #heartbeat_thread.join()
         #shutdown_thread.join()
     
@@ -76,12 +82,13 @@ class Manager:
             print("Created server socket")
             #handle things here that while not shutting down 
             while self.shutdown is not True:
-                self.check_job_queue()
+                # self.check_job_queue()
                 # check job_queue
                 
                 # Wait for a connection for 1s.  The socket library avoids consuming
                 # CPU while waiting for a connection.
-                print("start listening messages\n")
+                print("start listening messages\n")              
+
                 try:
                     clientsocket, address = sock.accept()
                 except socket.timeout:
@@ -145,6 +152,7 @@ class Manager:
                     #finished from mapping, we can directly call reducing
                     #the thing of check job queue change to that if queue is not empty and manager free now
                     #call the handle job, create a senario for the new execution
+                time.sleep(0.1)
     
     
     #a function to handle job request:
@@ -154,53 +162,56 @@ class Manager:
         job_id = self.jobCount
         self.jobCount += 1
         message_dict["job_id"] = job_id
-        output_dir = message_dict["output_directory"]
-        # delete output directory if exists
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
-            LOGGER.info("deleted output directory %s", output_dir)
-        # create output directory
-        os.makedirs(output_dir)
-        LOGGER.info("Created output directory %s", output_dir)
         self.job_queue.put(message_dict)
         print("added new job to job queue")
 
     def check_job_queue(self):
+        while self.shutdown is not True:
+            time.sleep(0.1)
         # TODO: make this a new thread?
-        print ("starting checking job queue")
-        print (self.job_queue.empty())
-        print (self.manager_state)
-        print (self.get_free_workers())
-        if (not self.job_queue.empty()) and self.manager_state == 'ready' and self.get_free_workers():
-            print ("running a job!")
-            self.manager_state = "busy"
-            self.taskState == "begin"
-            # self.get_free_workers() #TODO: needed here?
-            message_dict = self.job_queue.get()
-            self.currentJob = message_dict
-            #create temp dir need to call both mapping and reducing inside it:
-            prefix = f"mapreduce-shared-job{message_dict['job_id']:05d}-"
-            with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
-                LOGGER.info("Created tmpdir %s", tmpdir)
-                self.tempDir = tmpdir
-                while (self.taskState == "begin" and self.shutdown == False): #TODO: check tasks?
-                    time.sleep(0.1)
-                    print(self.taskState)
-                    self.partition_mapping(message_dict, tmpdir)
-                while (self.taskState == "mapping" and self.shutdown == False): #TODO: check tasks?
-                    time.sleep(0.1)
-                    print(self.taskState)
-                    if self.get_free_workers() is True:
-                        self.assign_map_work(message_dict, tmpdir)
-                while (self.taskState == "map_finished" and self.shutdown == False): #TODO: check tasks?
-                    time.sleep(0.1)
-                    print(self.taskState)
-                    # self.partitioning?
-                    self.reducing(message_dict, tmpdir)
-                # if self.taskState == "reduce_finished":
-                #        self.taskState = "complete"
-            LOGGER.info("Cleaned up tmpdir %s", tmpdir)
-            self.manager_state = "ready"
+            print ("starting checking job queue")
+            print (self.job_queue.empty())
+            print (self.manager_state)
+            print (self.get_free_workers())
+            if (not self.job_queue.empty()) and self.manager_state == 'ready':
+                print ("running a job!")
+                self.manager_state = "busy"
+                self.taskState == "begin"
+                # self.get_free_workers() #TODO: needed here?
+                message_dict = self.job_queue.get()
+                self.currentJob = message_dict
+                
+                output_dir = message_dict["output_directory"]
+                # delete output directory if exists
+                if os.path.exists(output_dir):
+                    shutil.rmtree(output_dir)
+                    LOGGER.info("deleted output directory %s", output_dir)
+                # create output directory
+                os.makedirs(output_dir)
+                LOGGER.info("Created output directory %s", output_dir)
+                #create temp dir need to call both mapping and reducing inside it:
+                prefix = f"mapreduce-shared-job{message_dict['job_id']:05d}-"
+                with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
+                    LOGGER.info("Created tmpdir %s", tmpdir)
+                    self.tempDir = tmpdir
+                    while (self.taskState == "begin" and self.shutdown == False): #TODO: check tasks?
+                        time.sleep(0.1)
+                        print(self.taskState)
+                        self.partition_mapping(message_dict, tmpdir)
+                    while (self.taskState == "mapping" and self.shutdown == False): #TODO: check tasks?
+                        time.sleep(0.1)
+                        print(self.taskState)
+                        if self.get_free_workers() is True:
+                            self.assign_map_work(message_dict, tmpdir)
+                    while (self.taskState == "map_finished" and self.shutdown == False): #TODO: check tasks?
+                        time.sleep(0.1)
+                        print(self.taskState)
+                        # self.partitioning?
+                        self.reducing(message_dict, tmpdir)
+                    # if self.taskState == "reduce_finished":
+                    #        self.taskState = "complete"
+                LOGGER.info("Cleaned up tmpdir %s", tmpdir)
+                self.manager_state = "ready"
 
     #a function to handle registering workers:
     def handle_register(self, dic) :
@@ -282,7 +293,7 @@ class Manager:
         self.sorting(input_list, num_needed_mappers, numFiles, self.tasks)
         print("finished partioning tasks")
         #now tasks have num_needed_mappers entries
-        self.assign_map_work(self, message_dict, tmpdir)
+        self.assign_map_work(message_dict, tmpdir)
 
     def assign_map_work(self, message_dict, tmpdir) :
         print("starting assigning tasks")
@@ -323,6 +334,7 @@ class Manager:
                     "worker_host" : host,
                     "worker_port" : port
                 })
+                print(message)
                 sock.sendall(message.encode('utf-8'))
             self.task_id += 1
 
