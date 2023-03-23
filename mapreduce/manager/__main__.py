@@ -135,77 +135,13 @@ class Manager:
                         print(self.currentJob["num_reducers"])
                         if self.finishCount == self.currentJob["num_reducers"]:
                             self.taskState = "reduce_finished"
-
-    def listen_new_messages(self) :
-        print("listening new messages")
-        #use TCP
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind((self.host, self.port)) 
-            sock.listen()
-            sock.settimeout(1)
-            print("Created server socket")
-            #handle things here that while not shutting down 
-            while self.shutdown is not True:
-                # Wait for a connection for 1s.  The socket library avoids consuming
-                # CPU while waiting for a connection.
-                try:
-                    clientsocket, address = sock.accept()
-                except socket.timeout:
-                    continue
-                # Socket recv() will block for a maximum of 1 second.  If you omit
-                # this, it blocks indefinitely, waiting for packets.
-                clientsocket.settimeout(1)
-                with clientsocket:
-                    message_chunks = []
-                    while True:
-                        try:
-                            data = clientsocket.recv(4096)
-                        except socket.timeout:
-                            continue
-                        if not data:
-                            break
-                        message_chunks.append(data)
-
-                # Decode list-of-byte-strings to UTF8 and parse JSON data
-                message_bytes = b''.join(message_chunks)
-                message_str = message_bytes.decode("utf-8")
-
-                try:
-                    message_dict = json.loads(message_str)
-                except json.JSONDecodeError:
-                    continue
-                print(address)
-                #and then determine if a message does something 
-                message_type = message_dict["message_type"]
-                if message_type == "new_manager_job" :
-                    self.handle_job_request(message_dict)
-                elif message_type == "register" :
-                    self.handle_register(message_dict)
-                    # TODO: check succcess?
-                elif message_type == "shutdown" :
-                    self.handle_shutdown()
-                    break
-                elif message_type == "finished" :
-                    print("received finished message")
-                    #first change the worker's state to ready again:
-                    pid = self.get_worker_id(message_dict["worker_host"], message_dict["worker_port"])
-                    self.update_ready(pid)
-                    if self.taskState == "mapping" :
-                        print("mapping now")
-                        self.receiveCount += 1
-                        print(self.receiveCount)
-                        print(self.currentJob["num_mappers"])
-                        if self.receiveCount == self.currentJob["num_mappers"]:
-                            self.taskState = "map_finished"
-                    elif self.taskState == "reducing" :
-                        print("reducing now")
-                        self.finishCount += 1
-                        print(self.finishCount)
-                        print(self.currentJob["num_reducers"])
-                        if self.finishCount == self.currentJob["num_reducers"]:
-                            self.taskState = "reduce_finished"
-
+                    #use else here for both new manager job and finish
+                    #call call the handle job here because in this case the momnet received the last
+                    #finished from mapping, we can directly call reducing
+                    #the thing of check job queue change to that if queue is not empty and manager free now
+                    #call the handle job, create a senario for the new execution
+    
+    
     #a function to handle job request:
     def handle_job_request(self, message_dict):
         print("manager received new job ")
