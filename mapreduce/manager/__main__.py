@@ -8,6 +8,7 @@ import json
 import time
 import click
 import shutil
+import pathlib
 from queue import Queue
 
 
@@ -263,6 +264,8 @@ class Manager:
         return have_free_workers
 
     def sorting(self, input_list, num_workers, numFiles, tasks) :
+        # sort input list
+        sorted_input_list = sorted(input_list)
         #create numTasks of lists and add them to the list of tasks
         for i in range(num_workers) :
             temp = []
@@ -270,7 +273,7 @@ class Manager:
         #then iterate through all files and assign them to workers
         for i in range(numFiles) :
             #i % numTasks
-            tasks[i % num_workers].append(input_list[i])
+            tasks[i % num_workers].append(sorted_input_list[i])
 
     def update_busy(self, worker_id) :
         self.workers[worker_id].state = "busy"
@@ -282,8 +285,12 @@ class Manager:
     def partition_mapping(self, message_dict, tmpdir) :
         self.task_id = 0
         self.tasks = []
-        input_directory = message_dict["input_directory"]
-        input_list = os.listdir(input_directory)
+        #input_directory = message_dict["input_directory"]
+        #input_list = os.listdir(input_directory)
+        input_path = pathlib.Path(message_dict["input_directory"])
+        input_list = []
+        for file in input_path.iterdir():
+            input_list.append(str(file))
         num_needed_mappers = message_dict["num_mappers"]
         self.num_remaining_tasks = num_needed_mappers
         numFiles = len(input_list)
@@ -327,7 +334,7 @@ class Manager:
                 message = json.dumps({
                     "message_type" : "new_map_task",
                     "task_id" : self.task_id,
-                    "input_path" : self.tasks[self.task_id], #list of strings/filenames
+                    "input_paths" : self.tasks[self.task_id], #list of filename strings
                     "executable" : executable,
                     "output_directory" : tmpdir,
                     "num_partitions" : num_reducers,
@@ -446,7 +453,7 @@ class Manager:
             elif self.taskState == "reducing" :
                 message = json.dumps({
                     "message_type" : "re_reduce",
-                    "input_path" : task_file,
+                    "input_paths" : task_file,
                     "executable" : self.currentJob["reducer_executable"],
                     "output_directory" : self.currentJob["output_directory"]
                 })
