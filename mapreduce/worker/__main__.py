@@ -29,11 +29,7 @@ class Worker:
         self.manager_host = manager_host
         self.manager_port = manager_port
         self.shutdown = False
-        #thread for sending heartbeat message:
-        send_hb_thread = threading.Thread(target=self.send_heartbeat)
-        send_hb_thread.start()
         self.listen()
-        send_hb_thread.join()
 
     #a function to listen to the manager's tcp message :
     def listen(self) :
@@ -77,6 +73,8 @@ class Worker:
                     print("register acknowledged")
                     self.registered = True
                     self.state = "ready"
+                    send_hb_thread = threading.Thread(target=self.send_heartbeat)
+                    send_hb_thread.start()
                 elif message_type == "new_map_task" or message_type == "re_map":
                     self.mapping(message_dict)
                 elif message_type == "new_reduce_task" or message_type == "re_reduce":
@@ -104,8 +102,10 @@ class Worker:
                 "worker_host" : self.host,
                 "worker_port" : self.port
             })
-            sock.sendall(message.encode('utf-8'))
-            time.sleep(2)
+            while self.shutdown is not True:
+                sock.sendall(message.encode('utf-8'))
+                print("heartbeat sent")
+                time.sleep(2)
     
     #for performing mapping tasks:
     def mapping(self, message_dict) :
