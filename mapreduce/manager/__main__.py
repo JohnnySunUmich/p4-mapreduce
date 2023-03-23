@@ -27,6 +27,9 @@ class Manager:
         self.workerCount = 0 #should there be an worker_id in the dictionary for the quick access?
         self.freeWorkers = {} #all the workers that are ready
         self.jobCount = 0 #used for job_id
+        self.task_id = 0
+        self.tasks = []
+        self.num_remaining_tasks = 0
         #create a dictionary for each worker's last time sending heartbeat:
         #use worker_id as key
         self.lastBeat = {}
@@ -64,7 +67,6 @@ class Manager:
 
     #a function for listening to non-heartbeat incoming messages :
     def listen_messages(self) :
-        print("listening messages")
         #use TCP
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -79,6 +81,7 @@ class Manager:
                 
                 # Wait for a connection for 1s.  The socket library avoids consuming
                 # CPU while waiting for a connection.
+                print("start listening messages\n")
                 try:
                     clientsocket, address = sock.accept()
                 except socket.timeout:
@@ -106,6 +109,8 @@ class Manager:
                 except json.JSONDecodeError:
                     continue
                 print(address)
+                print("Received message:")
+                print(message_dict)
                 #and then determine if a message does something 
                 message_type = message_dict["message_type"]
                 if message_type == "new_manager_job" :
@@ -182,9 +187,15 @@ class Manager:
                     time.sleep(0.1)
                     print(self.taskState)
                     self.partition_mapping(message_dict, tmpdir)
+                while (self.taskState == "mapping" and self.shutdown == False): #TODO: check tasks?
+                    time.sleep(0.1)
+                    print(self.taskState)
+                    if self.get_free_workers() is True:
+                        self.assign_map_work(message_dict, tmpdir)
                 while (self.taskState == "map_finished" and self.shutdown == False): #TODO: check tasks?
                     time.sleep(0.1)
                     print(self.taskState)
+                    # self.partitioning?
                     self.reducing(message_dict, tmpdir)
                 # if self.taskState == "reduce_finished":
                 #        self.taskState = "complete"
@@ -240,15 +251,15 @@ class Manager:
         print(len(self.workers))
         return have_free_workers
 
-    def sorting(self, input_list, numTasks, numFiles, tasks) :
+    def sorting(self, input_list, num_workers, numFiles, tasks) :
         #create numTasks of lists and add them to the list of tasks
-        for i in range(numTasks) :
+        for i in range(num_workers) :
             temp = []
             tasks.append(temp)
         #then iterate through all files and assign them to workers
         for i in range(numFiles) :
             #i % numTasks
-            tasks[i % numTasks].append(input_list[i])
+            tasks[i % num_workers].append(input_list[i])
 
     def update_busy(self, worker_id) :
         self.workers[worker_id].state = "busy"
@@ -258,43 +269,54 @@ class Manager:
         
     #for mapping:
     def partition_mapping(self, message_dict, tmpdir) :
-        task_id = 0
-        self.get_free_workers()
-        mappers = {} #a dictionary
+        self.task_id = 0
+        self.tasks = []
         input_directory = message_dict["input_directory"]
         input_list = os.listdir(input_directory)
-        numTasks = message_dict["num_mappers"]
+        num_needed_mappers = message_dict["num_mappers"]
+        self.num_remaining_tasks = num_needed_mappers
+        numFiles = len(input_list)
+
+        #sort the files and tasks:
+        # TODO: check correctness?
+        self.sorting(input_list, num_needed_mappers, numFiles, self.tasks)
+        print("finished partioning tasks")
+        #now tasks have num_needed_mappers entries
+        self.assign_map_work(self, message_dict, tmpdir)
+
+    def assign_map_work(self, message_dict, tmpdir) :
+        print("starting assigning tasks")
         num_reducers = message_dict["num_reducers"]
         executable = message_dict["mapper_executable"]
-        numFiles = len(input_list)
+        self.get_free_workers()
         #find available workers in from the free worker queue :
-        #break the for loop when the size of mappers == numTasks
+        #break the for loop when num_remaining_tasks == 0
+        new_mappers = {} #a dictionary
         for ID, free in self.freeWorkers.items():
-            mappers[ID] = free
-            if len(mappers) == numTasks :
+            new_mappers[ID] = free
+            self.num_remaining_tasks -= 1
+            if self.num_remaining_tasks == 0 :
                 break
-        print("finished choosing mappers")
-        print(len(mappers))
-        print(numTasks)
-        
-        tasks = [] #a list of lists
-        #sort the files and tasks:
-        self.sorting(input_list, numTasks, numFiles, tasks)
-        #after calling this sorting function 
+        print("finished choosing mappers, now num of new mappers:")
+        print(len(new_mappers))
+        print("num_remaining_tasks:")
+        print(self.num_remaining_tasks)
+
         #tasks will be a list of lists
-        index = 0 #use for accessing the list of tasks
-        for mapper_id, mapper in mappers.items() :
+        #now tasks have num_needed_mappers entries
+        for mapper_id, mapper in new_mappers.items() :
+            print("Assigning tasks to mappers")
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 host = mapper.worker_host
                 port = mapper.worker_port
                 sock.connect((host, port))
                 self.update_busy(mapper_id) #update worker's state to busy
-                self.workers[mapper_id].tasks.append(tasks[index])
-                mapper.tasks.append(tasks[index])
+                self.workers[mapper_id].tasks.append(self.tasks[self.task_id])
+                mapper.tasks.append(self.tasks[self.task_id])
                 message = json.dumps({
                     "message_type" : "new_map_task",
-                    "task_id" : task_id,
-                    "input_path" : tasks[index], #list of strings/filenames
+                    "task_id" : self.task_id,
+                    "input_path" : self.tasks[self.task_id], #list of strings/filenames
                     "executable" : executable,
                     "output_directory" : tmpdir,
                     "num_partitions" : num_reducers,
@@ -302,9 +324,7 @@ class Manager:
                     "worker_port" : port
                 })
                 sock.sendall(message.encode('utf-8'))
-                print("Assigning")
-            task_id += 1
-            index += 1
+            self.task_id += 1
 
         self.taskState = "mapping"
         LOGGER.info("send map test")
