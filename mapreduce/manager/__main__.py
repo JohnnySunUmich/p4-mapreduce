@@ -44,12 +44,12 @@ class Manager:
         #the main thread for listening for message:
         main_thread  = threading.Thread(target=self.listen_messages)
         main_thread.start()
-        #checking_thread  = threading.Thread(target=self.check_job_queue)
-        #checking_thread.start()
+        #listen_new_message  = threading.Thread(target=self.listen_new_messages)
+        #listen_new_message.start()
         #shutdown_thread = threading.Thread(target=self.listen_messages)
         #shutdown_thread.start()
         #when shutdown is that need to wait for all threads to complete or terminate all?
-        #checking_thread.join()
+        #listen_new_message.join()
         main_thread.join()
         #heartbeat_thread.join()
         #shutdown_thread.join()
@@ -136,6 +136,75 @@ class Manager:
                         if self.finishCount == self.currentJob["num_reducers"]:
                             self.taskState = "reduce_finished"
 
+    def listen_new_messages(self) :
+        print("listening new messages")
+        #use TCP
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((self.host, self.port)) 
+            sock.listen()
+            sock.settimeout(1)
+            print("Created server socket")
+            #handle things here that while not shutting down 
+            while self.shutdown is not True:
+                # Wait for a connection for 1s.  The socket library avoids consuming
+                # CPU while waiting for a connection.
+                try:
+                    clientsocket, address = sock.accept()
+                except socket.timeout:
+                    continue
+                # Socket recv() will block for a maximum of 1 second.  If you omit
+                # this, it blocks indefinitely, waiting for packets.
+                clientsocket.settimeout(1)
+                with clientsocket:
+                    message_chunks = []
+                    while True:
+                        try:
+                            data = clientsocket.recv(4096)
+                        except socket.timeout:
+                            continue
+                        if not data:
+                            break
+                        message_chunks.append(data)
+
+                # Decode list-of-byte-strings to UTF8 and parse JSON data
+                message_bytes = b''.join(message_chunks)
+                message_str = message_bytes.decode("utf-8")
+
+                try:
+                    message_dict = json.loads(message_str)
+                except json.JSONDecodeError:
+                    continue
+                print(address)
+                #and then determine if a message does something 
+                message_type = message_dict["message_type"]
+                if message_type == "new_manager_job" :
+                    self.handle_job_request(message_dict)
+                elif message_type == "register" :
+                    self.handle_register(message_dict)
+                    # TODO: check succcess?
+                elif message_type == "shutdown" :
+                    self.handle_shutdown()
+                    break
+                elif message_type == "finished" :
+                    print("received finished message")
+                    #first change the worker's state to ready again:
+                    pid = self.get_worker_id(message_dict["worker_host"], message_dict["worker_port"])
+                    self.update_ready(pid)
+                    if self.taskState == "mapping" :
+                        print("mapping now")
+                        self.receiveCount += 1
+                        print(self.receiveCount)
+                        print(self.currentJob["num_mappers"])
+                        if self.receiveCount == self.currentJob["num_mappers"]:
+                            self.taskState = "map_finished"
+                    elif self.taskState == "reducing" :
+                        print("reducing now")
+                        self.finishCount += 1
+                        print(self.finishCount)
+                        print(self.currentJob["num_reducers"])
+                        if self.finishCount == self.currentJob["num_reducers"]:
+                            self.taskState = "reduce_finished"
 
     #a function to handle job request:
     def handle_job_request(self, message_dict):
@@ -173,19 +242,16 @@ class Manager:
             with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
                 LOGGER.info("Created tmpdir %s", tmpdir)
                 self.tempDir = tmpdir
-                while (self.taskState != "complete" and self.shutdown == False): #TODO: check tasks?
+                while (self.taskState == "begin" and self.shutdown == False): #TODO: check tasks?
                     time.sleep(0.1)
                     print(self.taskState)
-                    if self.taskState == "begin":
-                        self.partition_mapping(message_dict, tmpdir)
-                    if self.taskState == "mapping":
-                        continue
-                    if self.taskState == "map_finished":
-                        self.reducing(message_dict, tmpdir)
-                    if self.taskState == "reducing":
-                        continue 
-                    if self.taskState == "reduce_finished":
-                        self.taskState = "complete"
+                    self.partition_mapping(message_dict, tmpdir)
+                while (self.taskState == "map_finished" and self.shutdown == False): #TODO: check tasks?
+                    time.sleep(0.1)
+                    print(self.taskState)
+                    self.reducing(message_dict, tmpdir)
+                # if self.taskState == "reduce_finished":
+                #        self.taskState = "complete"
             LOGGER.info("Cleaned up tmpdir %s", tmpdir)
             self.manager_state = "ready"
 
