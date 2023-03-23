@@ -176,7 +176,7 @@ class Worker:
         executable = message_dict["executable"]
         output_directory = message_dict["output_directory"]
         #merge input files into one sorted output stream
-        instream = heapq.merge(message_dict["inpupt_paths"])
+        instream = heapq.merge(message_dict["input_paths"])
         #need to make the task_id a 5 digit number: 
         task_id = '{:05d}'.format(message_dict["task_id"])
 
