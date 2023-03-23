@@ -31,7 +31,7 @@ class Manager:
         #use worker_id as key
         self.lastBeat = {}
         self.manager_state = "ready"
-        self.taskState = "" #track if it si tasking state or reducing state
+        self.taskState = "begin" #track if it si tasking state or reducing state
         self.receiveCount = 0 #track the finished map job
         self.finishCount = 0 #track the finished reduce job
         self.job_queue = Queue() #for pending jobs to be exevute 
@@ -122,11 +122,17 @@ class Manager:
                     pid = self.get_worker_id(message_dict["worker_host"], message_dict["worker_port"])
                     self.update_ready(pid)
                     if self.taskState == "mapping" :
+                        print("mapping now")
                         self.receiveCount += 1
+                        print(self.receiveCount)
+                        print(self.currentJob["num_mappers"])
                         if self.receiveCount == self.currentJob["num_mappers"]:
                             self.taskState = "map_finished"
                     elif self.taskState == "reducing" :
+                        print("reducing now")
                         self.finishCount += 1
+                        print(self.finishCount)
+                        print(self.currentJob["num_reducers"])
                         if self.finishCount == self.currentJob["num_reducers"]:
                             self.taskState = "reduce_finished"
 
@@ -158,6 +164,7 @@ class Manager:
         if (not self.job_queue.empty()) and self.manager_state == 'ready' and self.get_free_workers():
             print ("running a job!")
             self.manager_state = "busy"
+            self.taskState == "begin"
             # self.get_free_workers() #TODO: needed here?
             message_dict = self.job_queue.get()
             self.currentJob = message_dict
@@ -168,12 +175,17 @@ class Manager:
                 self.tempDir = tmpdir
                 while (self.taskState != "complete" and self.shutdown == False): #TODO: check tasks?
                     time.sleep(0.1)
-                    self.partition_mapping(message_dict, tmpdir)
                     print(self.taskState)
+                    if self.taskState == "begin":
+                        self.partition_mapping(message_dict, tmpdir)
+                    if self.taskState == "mapping":
+                        continue
                     if self.taskState == "map_finished":
                         self.reducing(message_dict, tmpdir)
-                        if self.taskState == "reduce_finished":
-                            self.taskState = "complete"
+                    if self.taskState == "reducing":
+                        continue 
+                    if self.taskState == "reduce_finished":
+                        self.taskState = "complete"
             LOGGER.info("Cleaned up tmpdir %s", tmpdir)
             self.manager_state = "ready"
 
@@ -220,6 +232,10 @@ class Manager:
             if worker.state == "ready" :
                 have_free_workers = True
                 self.freeWorkers[workerID] = worker
+        print("now we have free workers, num:")
+        print(len(self.freeWorkers))
+        print("now we have total workers, num:")
+        print(len(self.workers))
         return have_free_workers
 
     def sorting(self, input_list, numTasks, numFiles, tasks) :
@@ -255,6 +271,9 @@ class Manager:
             mappers[ID] = free
             if len(mappers) == numTasks :
                 break
+        print("finished choosing mappers")
+        print(len(mappers))
+        print(numTasks)
         
         tasks = [] #a list of lists
         #sort the files and tasks:
@@ -281,8 +300,10 @@ class Manager:
                     "worker_port" : port
                 })
                 sock.sendall(message.encode('utf-8'))
+                print("Assigning")
             task_id += 1
             index += 1
+
         self.taskState = "mapping"
         LOGGER.info("send map test")
     
