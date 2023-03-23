@@ -129,8 +129,13 @@ class Manager:
                         self.finishCount += 1
                         if self.finishCount == self.currentJob["num_reducers"]:
                             self.taskState = "reduce_finished"
-
-
+                    #use else here for both new manager job and finish
+                    #call call the handle job here because in this case the momnet received the last
+                    #finished from mapping, we can directly call reducing
+                    #the thing of check job queue change to that if queue is not empty and manager free now
+                    #call the handle job, create a senario for the new execution
+    
+    
     #a function to handle job request:
     def handle_job_request(self, message_dict):
         print("manager received new job ")
