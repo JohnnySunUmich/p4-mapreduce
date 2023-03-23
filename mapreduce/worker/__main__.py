@@ -112,12 +112,13 @@ class Worker:
         input_paths = message_dict["input_paths"]
         output_dir = message_dict["output_directory"]
         num_partitions = message_dict["num_partitions"]
+        print(num_partitions)
 
         #run the executable :
         prefix = f"mapreduce-local-task{message_dict['task_id']:05d}-"
         with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
             for input_path in input_paths :
-                with open(input_path) as infile:
+                with open(input_path, encoding="utf-8") as infile:
                     with subprocess.Popen(
                         executable,
                         stdin=infile,
@@ -125,17 +126,21 @@ class Worker:
                         text=True,
                     ) as map_process :
                         for line in map_process.stdout :
-                            line = line.strip()
+                            print(line)
+                            #line = line.strip()
                             if not line:
                                 continue
                             key = line.split("\t")[0]
+                            print(key)
                             hexdigest = hashlib.md5(key.encode("utf-8")).hexdigest()
                             keyhash = int(hexdigest, base=16)
                             partition_number = keyhash % num_partitions
                             part_file_name = f"maptask{message_dict['task_id']:05d}-part{f'{partition_number:05d}'}"
+                            print(part_file_name)
                             part_file_path = os.path.join(tmpdir, part_file_name)
                             with open(part_file_path, 'a+', encoding="utf-8") as part_file:
                                 part_file.write(line)
+                                print('wrote line ', line, " to ", part_file_path)
                                 part_file.close()
                             
             #after this the worker open the directory :
@@ -145,11 +150,9 @@ class Worker:
             for file in files :
                 # TODO: check correctness
                 with open(file, 'r') as currFile :
-                    tempList = []
-                    contents = currFile.read()
-                    for content in contents :
-                        tempList.append(content)
-                    tempList = sorted(tempList)
+                    tempList = currFile.readlines()
+                    print(tempList)
+                    tempList.sort()
                     with open(file, 'w') as currFile :
                         currFile.writelines(tempList)
                         currFile.close()
@@ -181,10 +184,10 @@ class Worker:
         with tempfile.TemporaryDirectory(prefix='mapreduce-local-task{}-'.format(task_id)) as tmp_dir2: 
             outfile = '{}/part-{}'.format(tmp_dir2, task_id)
             with subprocess.Popen(
-            executable,
-            text=True,
-            stdin=subprocess.PIPE,
-            stdout=outfile,
+                executable,
+                text=True,
+                stdin=subprocess.PIPE,
+                stdout=outfile,
             ) as reduce_process :
                 for line in instream:
                     reduce_process.stdin.write(line)
