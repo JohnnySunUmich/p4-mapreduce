@@ -52,8 +52,8 @@ class Manager:
         job_running_thread.start()
         heartbeat_thread = threading.Thread(target=self.listen_hb)
         heartbeat_thread.start()
-        check_dead_thread = threading.Thread(target=self.check_dead)
-        check_dead_thread.start()
+        #check_dead_thread = threading.Thread(target=self.check_dead)
+        #check_dead_thread.start()
         #the main thread for listening for message:
         self.listen_messages()
         
@@ -65,7 +65,7 @@ class Manager:
         #when shutdown is that need to wait for all threads to complete or terminate all?
         #listen_new_message.join()
         heartbeat_thread.join()
-        check_dead_thread.join()
+        #check_dead_thread.join()
         job_running_thread.join()
         #main_thread.join()
 
@@ -144,7 +144,9 @@ class Manager:
                     if self.taskState == "mapping" :
                         print("mapping now")
                         self.receiveCount += 1
+                        print("finished map task num:")
                         print(self.receiveCount)
+                        print("num_mappers needed:")
                         print(self.currentJob["num_mappers"])
                         if self.receiveCount == self.currentJob["num_mappers"]:
                             self.taskState = "map_finished"
@@ -161,6 +163,7 @@ class Manager:
                     #the thing of check job queue change to that if queue is not empty and manager free now
                     #call the handle job, create a senario for the new execution
                 time.sleep(0.1)
+        print("listening messages finished\n")  
     
     
     #a function to handle job request:
@@ -176,7 +179,7 @@ class Manager:
     def check_job_queue(self):
         while self.shutdown is not True:
             time.sleep(0.1)
-        # TODO: make this a new thread?
+            # TODO: make this a new thread?
             print ("starting checking job queue")
             print (self.job_queue.empty())
             print (self.manager_state)
@@ -219,11 +222,12 @@ class Manager:
                         time.sleep(0.1)
                         print(self.taskState)
                         if self.get_free_workers() is True:
-                            self.assign_reduce_work(message_dict, tmpdir)
+                            self.assign_reduce_work(message_dict)
                     # if self.taskState == "reduce_finished":
                     #        self.taskState = "complete"
                 LOGGER.info("Cleaned up tmpdir %s", tmpdir)
                 self.manager_state = "ready"
+        print("check job queue finished")
 
     #a function to handle registering workers:
     def handle_register(self, dic) :
@@ -268,6 +272,7 @@ class Manager:
                         LOGGER.info("ConnectionRefusedError")
                 worker.state = "dead"
         self.shutdown = True
+        print("marked shutdown")
 
     def get_free_workers(self) :
         have_free_workers = False 
@@ -306,10 +311,14 @@ class Manager:
         self.map_tasks = []
         #input_directory = message_dict["input_directory"]
         #input_list = os.listdir(input_directory)
-        input_path = pathlib.Path(message_dict["input_directory"])
         input_list = []
-        for file in input_path.iterdir():
-            input_list.append(str(file))
+        for file in os.listdir(message_dict["input_directory"]):
+            joined_path = os.path.join(message_dict["input_directory"], file)
+            input_list.append(joined_path)
+        #input_path = pathlib.Path(message_dict["input_directory"])
+        #input_list = []
+        #for file in input_path.iterdir():
+            #input_list.append(str(file))
         num_needed_mappers = message_dict["num_mappers"]
         self.num_remaining_map_tasks = num_needed_mappers
         numFiles = len(input_list)
@@ -322,6 +331,8 @@ class Manager:
         self.assign_map_work(message_dict, tmpdir)
 
     def assign_map_work(self, message_dict, tmpdir) :
+        if self.receiveCount == self.currentJob["num_mappers"]:
+            return
         print("starting assigning map tasks")
         num_reducers = message_dict["num_reducers"]
         executable = message_dict["mapper_executable"]
@@ -381,15 +392,17 @@ class Manager:
     def partition_reducing(self, message_dict, tmpdir) :
         self.reduce_task_id = 0
         self.rudece_tasks = []
-        
-
         #open the tempdir it create and use the filename inside
         #use str(file) to turn the file name just to string
 
         #temp_path = pathlib.Path(tmpdir)
         allPaths = []
-        for file in tmpdir.iterdir() :
-            allPaths.append(str(file))
+        for file in os.listdir(tmpdir):
+            joined_path = os.path.join(tmpdir, file)
+            allPaths.append(joined_path)
+        #allPaths = []
+        #for file in tmpdir.iterdir() :
+            #allPaths.append(str(file))
 
         num_needed_reducers = message_dict["num_reducers"]
         self.num_remaining_map_tasks =  num_needed_reducers
@@ -399,9 +412,11 @@ class Manager:
         self.sorting(allPaths, num_needed_reducers, numFiles, self.reduce_tasks)
         print("finished partioning tasks")
         #now tasks have num_needed_mappers entries
-        self.assign_reduce_work(message_dict, tmpdir)
+        self.assign_reduce_work(message_dict)
 
-    def assign_reduce_work(self, message_dict, tmpdir) :
+    def assign_reduce_work(self, message_dict) :
+        if self.finishCount == self.currentJob["num_reducers"]:
+            return
         print("starting assigning reduce tasks")
         self.get_free_workers()
         new_reducers = {} #a dictrionary 
@@ -468,7 +483,7 @@ class Manager:
             sock.bind((self.host, self.port)) #which ports should be binded 
             sock.settimeout(1)
 
-            while self.shutdown is False: 
+            while self.shutdown is not True: 
                 try:
                     message_bytes = sock.recv(4096)
                 except socket.timeout:
@@ -485,10 +500,11 @@ class Manager:
                     workerID = self.get_worker_id(wHost, wPort)
                     self.lastBeat[workerID] = time.time()
                     #still need to create a function to reassign works of dead workers
+        print("listening hb finished")
     
     def check_dead(self):
         print("start checking dead")
-        while self.shutdown is False: 
+        while self.shutdown is not True: 
             time.sleep(0.1)
             for workerID, worker in self.workers.items() : #iterate
                 if (workerID in self.lastBeat and time.time() - self.lastBeat[workerID] >= 10) :
@@ -499,6 +515,7 @@ class Manager:
                             self.map_tasks.append(worker["task"])
                         elif worker.task_type == "reduce":
                             self.reduce_tasks.append(worker["task"])
+        print("checking dead finished")
     
     def get_worker_id(self, host, port) :
         for pid in self.workers:
