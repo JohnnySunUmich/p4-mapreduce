@@ -162,7 +162,7 @@ class Worker:
                             #print('wrote line ', line, " to ", part_file_path)
                             #part_file.close()
 
-            #topen each file to sort the values in each file and write back
+            #open each file to sort the values in each file and write back
             for file in os.listdir(tmpdir) :
                 # TODO: check correctness
                 file_path = os.path.join(tmpdir, file)
@@ -172,6 +172,8 @@ class Worker:
                     #print(tempList)
                     tempList.sort()
                     #sorted(tempList)
+                    #write from top!!!!!!!
+                    currFile.seek(0)
                     currFile.writelines(tempList)
                 # move sorted temp files to output dir.
                 shutil.move(os.path.join(tmpdir, file),

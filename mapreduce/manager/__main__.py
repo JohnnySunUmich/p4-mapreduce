@@ -261,6 +261,7 @@ class Manager:
             self.workerCount += 1
             if((workerHost, workerHost) not in self.lastBeat):
                 self.lastBeat[(workerHost, workerHost)] = time.time()
+                print("set last beat when registering")
         LOGGER.info('Registered Worker (%s, %s)', workerHost, workerPort)
     
     def handle_shutdown(self) :
