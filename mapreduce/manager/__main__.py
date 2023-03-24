@@ -72,11 +72,12 @@ class Manager:
     
     #create an inner class of Worker:
     class Worker:
-        def __init__(self, worker_host, worker_port, state, tasks) :
+        def __init__(self, worker_host, worker_port, state, task, task_type) :
             self.worker_host = worker_host
             self.worker_port = worker_port
             self.state = state
-            self.tasks = tasks
+            self.current_task = task
+            self.task_type = task_type
 
     #a function for listening to non-heartbeat incoming messages :
     def listen_messages(self) :
@@ -234,7 +235,7 @@ class Manager:
         #change the worker list of dic  to a dictionary of key: workerid, value: worker object
         #TODO: another way to handle this, using bool success?
         worker_id = self.workerCount #worker pid for identification
-        worker = self.Worker(workerHost, workerPort, "ready",[])
+        worker = self.Worker(workerHost, workerPort, "ready", [], "") #task is a list of string files
         self.workers[worker_id] = worker
         self.workerCount += 1
         #then send a message back to the worker 
@@ -367,8 +368,10 @@ class Manager:
                     self.mark_worker_dead(dead_id)
             if(success):
                 self.update_busy(mapper_id) #update worker's state to busy
-                self.workers[mapper_id].tasks.append(self.map_tasks[self.map_task_id])
-                mapper.tasks.append(self.map_tasks[self.map_task_id])
+                self.workers[mapper_id].task_type = "map"
+                self.workers[mapper_id].current_task = self.map_tasks[self.map_task_id]
+                mapper.task_type = "map"
+                mapper.current_task = self.map_tasks[self.map_task_id]
                 self.map_task_id += 1
 
         self.taskState = "mapping"
@@ -447,8 +450,10 @@ class Manager:
                     self.mark_worker_dead(dead_id)
             if(success):
                 self.update_busy(reducer_id) #update worker's state to busy
-                self.workers[reducer_id].tasks.append(self.reduce_tasks[self.reduce_task_id])
-                reducer.tasks.append(self.reduce_tasks[self.reduce_task_id])
+                self.workers[reducer_id].task_type = "reduce"
+                self.workers[reducer_id].current_task = self.reduce_tasks[self.reduce_task_id]
+                reducer.task_type = "reduce"
+                reducer.current_task = self.reduce_tasks[self.reduce_task_id]
                 self.reduce_task_id += 1
 
         self.taskState = "reducing"
@@ -469,19 +474,31 @@ class Manager:
                 except socket.timeout:
                     continue
                 message_str = message_bytes.decode("utf-8")
-                message_dict = json.loads(message_str)
-                #looping through workers and if one has not for 10s mark as dead
-                wHost = message_dict["worker_host"]
-                wPort = message_dict["worker_port"]
-                workerID = self.get_worker_id(wHost, wPort)
-                if (workerID in self.lastBeat and time.time() - self.lastBeat["workerID"] >= 10) :
-                    self.mark_worker_dead(workerID)
-                    self.reassign_task(workerID)
-                self.lastBeat["workerID"] = time.time()
-                #still need to create a function to reassign works of dead workers
+                try:
+                    message_dict = json.loads(message_str)
+                except json.JSONDecodeError:
+                    continue
+                if message_dict['message_type'] == 'heartbeat':
+                    #looping through workers and if one has not for 10s mark as dead
+                    wHost = message_dict["worker_host"]
+                    wPort = message_dict["worker_port"]
+                    workerID = self.get_worker_id(wHost, wPort)
+                    self.lastBeat[workerID] = time.time()
+                    #still need to create a function to reassign works of dead workers
     
     def check_dead(self):
-        return
+        print("start checking dead")
+        while self.shutdown is False: 
+            time.sleep(0.1)
+            for workerID, worker in self.workers.items() : #iterate
+                if (workerID in self.lastBeat and time.time() - self.lastBeat[workerID] >= 10) :
+                    self.mark_worker_dead(workerID)
+                    if worker.state == "busy" :
+                        #TODO: how to handle task_ID?
+                        if worker.task_type == "map":
+                            self.map_tasks.append(worker["task"])
+                        elif worker.task_type == "reduce":
+                            self.reduce_tasks.append(worker["task"])
     
     def get_worker_id(self, host, port) :
         for pid in self.workers:
@@ -492,11 +509,12 @@ class Manager:
         self.workers[dead_id].state = "dead"
 
     #if a worker dies, assign its tasks to the next available worker:
+    #TODO: delete this
     def reassign_task(self, dead_id) :
         self.get_free_workers()
         newWorker = list(self.freeWorkers.items())[0]
         #the task file to be re-distributed :
-        task_file = self.workers[dead_id].tasks
+        task_file = self.workers[dead_id].current_task
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.connect((newWorker.worker_host, newWorker.worker_port))
             #the task to be reassigned
@@ -519,7 +537,7 @@ class Manager:
             sock.sendall(message.encode('utf-8'))
         new_id = self.get_worker_id(newWorker.worker_host, newWorker.worker_port)
         self.update_busy(new_id)
-        self.workers[new_id].task = task_file
+        self.workers[new_id].current_task = task_file
 
 
 @click.command()
