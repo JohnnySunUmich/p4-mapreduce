@@ -52,10 +52,11 @@ class Manager:
         job_running_thread.start()
         heartbeat_thread = threading.Thread(target=self.listen_hb)
         heartbeat_thread.start()
-        #check_dead_thread = threading.Thread(target=self.check_dead)
-        #check_dead_thread.start()
+        check_dead_thread = threading.Thread(target=self.check_dead)
+        check_dead_thread.start()
         #the main thread for listening for message:
         self.listen_messages()
+        #self.shutdown = True
         
         #main_thread  = threading.Thread(target=self.listen_messages)
         #main_thread.start()
@@ -65,7 +66,7 @@ class Manager:
         #when shutdown is that need to wait for all threads to complete or terminate all?
         #listen_new_message.join()
         heartbeat_thread.join()
-        #check_dead_thread.join()
+        check_dead_thread.join()
         job_running_thread.join()
         #main_thread.join()
 
