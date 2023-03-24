@@ -45,12 +45,15 @@ class Manager:
         self.currentJob = {} #for reassign
         self.tempDir = "" #for reassign
         #start running the main thing : 
-        #for three things be at the same time : shutdown/ job running/ heartbeat
-        #heartbeat_thread = threading.Thread(target=self.listen_hb)
-        #heartbeat_thread.start()
+        #for three things be at the same time : 
+        # listen TCP/ job running/ listen UDP / check dead
         
-        checking_thread  = threading.Thread(target=self.check_job_queue)
-        checking_thread.start()
+        job_running_thread  = threading.Thread(target=self.check_job_queue)
+        job_running_thread.start()
+        heartbeat_thread = threading.Thread(target=self.listen_hb)
+        heartbeat_thread.start()
+        check_dead_thread = threading.Thread(target=self.check_dead)
+        check_dead_thread.start()
         #the main thread for listening for message:
         self.listen_messages()
         
@@ -58,14 +61,14 @@ class Manager:
         #main_thread.start()
         #listen_new_message  = threading.Thread(target=self.listen_new_messages)
         #listen_new_message.start()
-        #shutdown_thread = threading.Thread(target=self.listen_messages)
-        #shutdown_thread.start()
+        
         #when shutdown is that need to wait for all threads to complete or terminate all?
         #listen_new_message.join()
-        checking_thread.join()
+        heartbeat_thread.join()
+        check_dead_thread.join()
+        job_running_thread.join()
         #main_thread.join()
-        #heartbeat_thread.join()
-        #shutdown_thread.join()
+
     
     #create an inner class of Worker:
     class Worker:
@@ -227,33 +230,41 @@ class Manager:
         #first get the worker host and port
         workerHost = dic["worker_host"]
         workerPort = dic["worker_port"]
-        #then send a message back to the worker 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.connect((workerHost, workerPort))
-            message = json.dumps({
-                "message_type" : "register_ack",
-                "worker_host" : workerHost,
-                "worker_port" : workerPort
-            })
-            sock.sendall(message.encode('utf-8'))
         #create a dictionary that stores the worker's info:
         #change the worker list of dic  to a dictionary of key: workerid, value: worker object
+        #TODO: another way to handle this, using bool success?
         worker_id = self.workerCount #worker pid for identification
         worker = self.Worker(workerHost, workerPort, "ready",[])
         self.workers[worker_id] = worker
         self.workerCount += 1
+        #then send a message back to the worker 
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.connect((workerHost, workerPort))
+                message = json.dumps({
+                    "message_type" : "register_ack",
+                    "worker_host" : workerHost,
+                    "worker_port" : workerPort
+                })
+                sock.sendall(message.encode('utf-8'))
+            except ConnectionRefusedError:
+                LOGGER.info("ConnectionRefusedError")
+                #dead_id = self.get_worker_id(workerHost, workerPort)
+                self.mark_worker_dead(worker_id)
         LOGGER.info('Registered Worker (%s, %s)', workerHost, workerPort)
     
     def handle_shutdown(self) :
         for worker in self.workers.values() :
             if worker.state != "dead":
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                    sock.connect((worker.worker_host, worker.worker_port))
-                    message = json.dumps({
-                        "message_type" : "shutdown"
-                    })
-                    sock.sendall(message.encode('utf-8'))
-                    # TODO: check if success
+                    try:
+                        sock.connect((worker.worker_host, worker.worker_port))
+                        message = json.dumps({
+                            "message_type" : "shutdown"
+                        })
+                        sock.sendall(message.encode('utf-8'))
+                    except ConnectionRefusedError:
+                        LOGGER.info("ConnectionRefusedError")
                 worker.state = "dead"
         self.shutdown = True
 
@@ -331,26 +342,34 @@ class Manager:
         #now tasks have num_needed_mappers entries
         for mapper_id, mapper in new_mappers.items() :
             print("Assigning tasks to mappers")
+            success = True
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 host = mapper.worker_host
                 port = mapper.worker_port
-                sock.connect((host, port))
+                try:
+                    sock.connect((host, port))
+                    message = json.dumps({
+                        "message_type" : "new_map_task",
+                        "task_id" : self.map_task_id,
+                        "input_paths" : self.map_tasks[self.map_task_id], #list of filename strings
+                        "executable" : executable,
+                        "output_directory" : tmpdir,
+                        "num_partitions" : num_reducers,
+                        "worker_host" : host,
+                        "worker_port" : port
+                    })
+                    print(message)
+                    sock.sendall(message.encode('utf-8'))
+                except ConnectionRefusedError:
+                    LOGGER.info("ConnectionRefusedError")
+                    success = False
+                    dead_id = self.get_worker_id(host, port)
+                    self.mark_worker_dead(dead_id)
+            if(success):
                 self.update_busy(mapper_id) #update worker's state to busy
                 self.workers[mapper_id].tasks.append(self.map_tasks[self.map_task_id])
                 mapper.tasks.append(self.map_tasks[self.map_task_id])
-                message = json.dumps({
-                    "message_type" : "new_map_task",
-                    "task_id" : self.map_task_id,
-                    "input_paths" : self.map_tasks[self.map_task_id], #list of filename strings
-                    "executable" : executable,
-                    "output_directory" : tmpdir,
-                    "num_partitions" : num_reducers,
-                    "worker_host" : host,
-                    "worker_port" : port
-                })
-                print(message)
-                sock.sendall(message.encode('utf-8'))
-            self.map_task_id += 1
+                self.map_task_id += 1
 
         self.taskState = "mapping"
         LOGGER.info("send map test")
@@ -405,30 +424,39 @@ class Manager:
         #send the message to reducers:
         for reducer_id, reducer in new_reducers.items():
             print("Assigning tasks to reducers")
+            success = True
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 host = reducer.worker_host
                 port = reducer.worker_port
-                sock.connect((host, port))
+                try:
+                    sock.connect((host, port))
+                    message = json.dumps({
+                        "message_type" : "new_reduce_task",
+                        "task_id" : self.map_task_id,
+                        "executable" : executable,
+                        "input_paths" : self.reduce_tasks[self.reduce_task_id],
+                        "output_directory" : output_directory,
+                        "worker_host" : host,
+                        "worker_port" : port
+                    })
+                    sock.sendall(message.encode('utf-8'))
+                except ConnectionRefusedError:
+                    LOGGER.info("ConnectionRefusedError")
+                    success = False
+                    dead_id = self.get_worker_id(host, port)
+                    self.mark_worker_dead(dead_id)
+            if(success):
                 self.update_busy(reducer_id) #update worker's state to busy
                 self.workers[reducer_id].tasks.append(self.reduce_tasks[self.reduce_task_id])
                 reducer.tasks.append(self.reduce_tasks[self.reduce_task_id])
-                message = json.dumps({
-                    "message_type" : "new_reduce_task",
-                    "task_id" : self.map_task_id,
-                    "executable" : executable,
-                    "input_paths" : self.reduce_tasks[self.reduce_task_id],
-                    "output_directory" : output_directory,
-                    "worker_host" : host,
-                    "worker_port" : port
-                })
-                sock.sendall(message.encode('utf-8'))
-            self.reduce_task_id += 1
+                self.reduce_task_id += 1
 
         self.taskState = "reducing"
 
     #a function for listening to heartbeat messages :
     def listen_hb(self) :
         """Listen to workers' heartbeat messages"""
+        print("start listening hb")
         #use UDP
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -452,6 +480,9 @@ class Manager:
                 self.lastBeat["workerID"] = time.time()
                 #still need to create a function to reassign works of dead workers
     
+    def check_dead(self):
+        return
+    
     def get_worker_id(self, host, port) :
         for pid in self.workers:
             if self.workers[pid].worker_host == host and self.workers[pid].worker_port == port :
@@ -469,6 +500,7 @@ class Manager:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.connect((newWorker.worker_host, newWorker.worker_port))
             #the task to be reassigned
+            #TODO: check success? delete this?
             if self.taskState == "mapping" :
                 message = json.dumps({
                     "message_type" : "re_map",
