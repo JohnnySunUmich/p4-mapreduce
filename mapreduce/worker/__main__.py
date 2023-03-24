@@ -29,7 +29,10 @@ class Worker:
         self.manager_host = manager_host
         self.manager_port = manager_port
         self.shutdown = False
+        self.threads = []
         self.listen()
+        for t in self.threads:
+            t.join()
         #send_hb_thread = threading.Thread(target=self.send_heartbeat)
         #send_hb_thread.start()
         #send_hb_thread.join()
@@ -41,7 +44,6 @@ class Worker:
             sock.bind((self.host, self.port))
             sock.listen()
             sock.settimeout(1)
-            send_hb_thread = threading.Thread(target=self.send_heartbeat)
             while self.shutdown == False:
                 #first register it if not already done so:
                 if self.registered == False :
@@ -73,12 +75,13 @@ class Worker:
                 message_type = message_dict["message_type"]
                 if message_type == "shutdown" :
                     self.shutdown = True
-                    send_hb_thread.join()
                     break
                 elif message_type == "register_ack" :
                     print("register acknowledged")
                     self.registered = True
                     self.state = "ready"
+                    send_hb_thread = threading.Thread(target=self.send_heartbeat)
+                    self.threads.append(send_hb_thread)
                     send_hb_thread.start()
                 elif message_type == "new_map_task" or message_type == "re_map":
                     self.mapping(message_dict)
