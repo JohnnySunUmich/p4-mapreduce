@@ -8,7 +8,6 @@ import json
 import time
 import click
 import shutil
-import pathlib
 from queue import Queue
 
 
@@ -28,14 +27,14 @@ class Manager:
         self.workerCount = 0 #should there be an worker_id in the dictionary for the quick access?
         self.freeWorkers = {} #all the workers that are ready
         self.jobCount = 0 #used for job_id
-        self.map_task_id = 0
-        self.map_tasks = []
-        self.reduce_task_id = 0
-        self.reduce_tasks = []
-        self.num_remaining_map_tasks = 0
-        self.num_remaining_reduce_tasks = 0
+        # self.map_task_id = 0
+        self.map_tasks = Queue() #available map task queue
+        # self.reduce_task_id = 0
+        self.reduce_tasks = Queue() #available reduce task queue
+        #self.num_remaining_map_tasks = 0
+        #self.num_remaining_reduce_tasks = 0
         #create a dictionary for each worker's last time sending heartbeat:
-        #use worker_id as key
+        #use (host, port) as key
         self.lastBeat = {}
         self.manager_state = "ready"
         self.taskState = "begin" #track if it si tasking state or reducing state
@@ -73,12 +72,11 @@ class Manager:
     
     #create an inner class of Worker:
     class Worker:
-        def __init__(self, worker_host, worker_port, state, task, task_type) :
+        def __init__(self, worker_host, worker_port, state, task) :
             self.worker_host = worker_host
             self.worker_port = worker_port
             self.state = state
             self.current_task = task
-            self.task_type = task_type
 
     #a function for listening to non-heartbeat incoming messages :
     def listen_messages(self) :
@@ -207,23 +205,21 @@ class Manager:
                     LOGGER.info("Created tmpdir %s", tmpdir)
                     self.tempDir = tmpdir
                     while (self.taskState == "begin" and self.shutdown == False): 
-                        time.sleep(0.1)
                         print(self.taskState)
                         self.partition_mapping(message_dict, tmpdir)
+                        time.sleep(0.1)
                     while (self.taskState == "mapping" and self.shutdown == False): 
-                        time.sleep(0.1)
                         print(self.taskState)
-                        if self.get_free_workers() is True:
-                            self.assign_map_work(message_dict, tmpdir)
-                    while (self.taskState == "map_finished" and self.shutdown == False): 
+                        self.assign_map_work(message_dict, tmpdir)
                         time.sleep(0.1)
+                    while (self.taskState == "map_finished" and self.shutdown == False): 
                         print(self.taskState)
                         self.partition_reducing(message_dict, tmpdir)
-                    while (self.taskState == "reducing" and self.shutdown == False): 
                         time.sleep(0.1)
+                    while (self.taskState == "reducing" and self.shutdown == False): 
                         print(self.taskState)
-                        if self.get_free_workers() is True:
-                            self.assign_reduce_work(message_dict)
+                        self.assign_reduce_work(message_dict)
+                        time.sleep(0.1)
                     # if self.taskState == "reduce_finished":
                     #        self.taskState = "complete"
                 LOGGER.info("Cleaned up tmpdir %s", tmpdir)
@@ -240,9 +236,10 @@ class Manager:
         #change the worker list of dic  to a dictionary of key: workerid, value: worker object
         #TODO: another way to handle this, using bool success?
         worker_id = self.workerCount #worker pid for identification
-        worker = self.Worker(workerHost, workerPort, "ready", [], "") #task is a list of string files
+        worker = self.Worker(workerHost, workerPort, "ready", {}) #task is a dict
         self.workers[worker_id] = worker
         self.workerCount += 1
+        LOGGER.info('First try to register Worker (%s, %s)', workerHost, workerPort)
         #then send a message back to the worker 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             try:
@@ -288,17 +285,20 @@ class Manager:
         print(len(self.workers))
         return have_free_workers
 
-    def sorting(self, input_list, num_workers, numFiles, tasks) :
+    def sorting(self, input_list, num_workers, numFiles, tasks, task_type) :
         # sort input list
         sorted_input_list = sorted(input_list)
         #create numTasks of lists and add them to the list of tasks
         for i in range(num_workers) :
-            temp = []
-            tasks.append(temp)
+            if task_type == 'map':
+                tasks.append({'task_type': 'map', 'task_id': i, 'task_files': []})
+            elif task_type == 'reduce':
+                tasks.append({'task_type': 'reduce', 'task_id': i, 'task_files': []})
         #then iterate through all files and assign them to workers
         for i in range(numFiles) :
             #i % numTasks
-            tasks[i % num_workers].append(sorted_input_list[i])
+            tasks[i % num_workers]['task_files'].append(sorted_input_list[i])
+        #tasks is now a list of "task_dict"
 
     def update_busy(self, worker_id) :
         self.workers[worker_id].state = "busy"
@@ -308,8 +308,8 @@ class Manager:
         
     #for mapping:
     def partition_mapping(self, message_dict, tmpdir) :
-        self.map_task_id = 0
-        self.map_tasks = []
+        #self.map_task_id = 0
+        #self.map_tasks = []
         #input_directory = message_dict["input_directory"]
         #input_list = os.listdir(input_directory)
         input_list = []
@@ -321,79 +321,90 @@ class Manager:
         #for file in input_path.iterdir():
             #input_list.append(str(file))
         num_needed_mappers = message_dict["num_mappers"]
-        self.num_remaining_map_tasks = num_needed_mappers
+        #self.num_remaining_map_tasks = num_needed_mappers
         numFiles = len(input_list)
 
         #sort the files and tasks:
         # TODO: check correctness?
-        self.sorting(input_list, num_needed_mappers, numFiles, self.map_tasks)
-        print("finished partioning tasks")
-        #now tasks have num_needed_mappers entries
+        partitioned_tasks = []
+        self.sorting(input_list, num_needed_mappers, numFiles, partitioned_tasks, "map")
+        #partitioned tasks is now a list of "task_dict"
+        for partitioned_task in partitioned_tasks:
+            self.map_tasks.put(partitioned_task)
+        print("finished partioning map tasks")
+        #now self.map_tasks added num_needed_mappers entries
         self.assign_map_work(message_dict, tmpdir)
 
     def assign_map_work(self, message_dict, tmpdir) :
+        # if finished map, return
         if self.receiveCount == self.currentJob["num_mappers"]:
+            return
+        # if no available map task, return
+        if self.map_tasks.empty():
             return
         print("starting assigning map tasks")
         num_reducers = message_dict["num_reducers"]
         executable = message_dict["mapper_executable"]
-        self.get_free_workers()
-        #find available workers in from the free worker queue :
-        #break the for loop when num_remaining_map_tasks == 0
-        new_mappers = {} #a dictionary
-        for ID, free in self.freeWorkers.items():
-            if self.num_remaining_map_tasks == 0 :
-                break
-            new_mappers[ID] = free
-            self.num_remaining_map_tasks -= 1
 
-        print("finished choosing mappers, now num of new mappers:")
-        print(len(new_mappers))
-        print("num_remaining_map_tasks:")
-        print(self.num_remaining_map_tasks)
+        #print("num_remaining_map_tasks:")
+        #print(self.num_remaining_map_tasks)
 
         #tasks will be a list of (list of filename strings)
         #now tasks have num_needed_mappers entries
-        for mapper_id, mapper in new_mappers.items() :
-            print("Assigning tasks to mappers")
-            success = True
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                host = mapper.worker_host
-                port = mapper.worker_port
-                try:
-                    sock.connect((host, port))
-                    message = json.dumps({
-                        "message_type" : "new_map_task",
-                        "task_id" : self.map_task_id,
-                        "input_paths" : self.map_tasks[self.map_task_id], #list of filename strings
-                        "executable" : executable,
-                        "output_directory" : tmpdir,
-                        "num_partitions" : num_reducers,
-                        "worker_host" : host,
-                        "worker_port" : port
-                    })
-                    print(message)
-                    sock.sendall(message.encode('utf-8'))
-                except ConnectionRefusedError:
-                    LOGGER.info("ConnectionRefusedError")
-                    success = False
-                    dead_id = self.get_worker_id(host, port)
-                    self.mark_worker_dead(dead_id)
-            if(success):
-                self.update_busy(mapper_id) #update worker's state to busy
-                self.workers[mapper_id].task_type = "map"
-                self.workers[mapper_id].current_task = self.map_tasks[self.map_task_id]
-                mapper.task_type = "map"
-                mapper.current_task = self.map_tasks[self.map_task_id]
-                self.map_task_id += 1
+        while not self.map_tasks.empty() and not self.shutdown and self.taskState == "mapping":
+            time.sleep(0.1)
+            # update free worker each loop!!!!
+            self.get_free_workers()
+            print("trying to assigning tasks to mappers")
+            for worker_id, worker in self.freeWorkers.items():
+                print("free worker num?")
+                print(len(self.freeWorkers))
+                print("available map task num?")
+                print(self.map_tasks.qsize())
+            for worker_id, worker in self.freeWorkers.items():
+                print(len(self.freeWorkers))
+                print(worker_id)
+                print(worker.worker_host)
+                print(worker.worker_port)
+                success = True
+                task = self.map_tasks.get()
+                print(task)
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    host = worker.worker_host
+                    port = worker.worker_port
+                    try:
+                        sock.connect((host, port))
+                        message = json.dumps({
+                            "message_type" : "new_map_task",
+                            "task_id" : task['task_id'],
+                            "input_paths" : task['task_files'], #list of filename strings
+                            "executable" : executable,
+                            "output_directory" : tmpdir,
+                            "num_partitions" : num_reducers,
+                            "worker_host" : host,
+                            "worker_port" : port
+                        })
+                        print(message)
+                        sock.sendall(message.encode('utf-8'))
+                    except ConnectionRefusedError:
+                        LOGGER.info("ConnectionRefusedError")
+                        success = False
+                        #dead_id = self.get_worker_id(host, port)
+                        self.mark_worker_dead(worker_id)
+                        self.map_tasks.put(task)
+                        print("dead")
+                if(success):
+                    LOGGER.info("send map test")
+                    self.update_busy(worker_id) #update worker's state to busy
+                    self.workers[worker_id].current_task = task
+                    #self.map_task_id += 1
 
         self.taskState = "mapping"
-        LOGGER.info("send map test")
     
     #for reducing:
     def partition_reducing(self, message_dict, tmpdir) :
-        self.reduce_task_id = 0
-        self.rudece_tasks = []
+        #self.reduce_task_id = 0
+        #self.rudece_tasks = []
         #open the tempdir it create and use the filename inside
         #use str(file) to turn the file name just to string
 
@@ -407,74 +418,72 @@ class Manager:
             #allPaths.append(str(file))
 
         num_needed_reducers = message_dict["num_reducers"]
-        self.num_remaining_map_tasks =  num_needed_reducers
+        #self.num_remaining_reduce_tasks =  num_needed_reducers
         numFiles = len(allPaths)
 
         #sort the files and tasks for the workers:
-        self.sorting(allPaths, num_needed_reducers, numFiles, self.reduce_tasks)
-        print("finished partioning tasks")
-        #now tasks have num_needed_mappers entries
+        partitioned_tasks = []
+        self.sorting(allPaths, num_needed_reducers, numFiles, partitioned_tasks, "reduce")
+        for partitioned_task in partitioned_tasks:
+            self.reduce_tasks.put(partitioned_task)
+        print("finished partioning reduce tasks")
+        #now self.reduce_tasks added num_needed_reducers entries
         self.assign_reduce_work(message_dict)
 
     def assign_reduce_work(self, message_dict) :
+        # if finished reduce, return
         if self.finishCount == self.currentJob["num_reducers"]:
             return
+        # if no available reduce task, return
+        if self.reduce_tasks.empty():
+            return
         print("starting assigning reduce tasks")
-        self.get_free_workers()
-        new_reducers = {} #a dictrionary 
-        #do the partition job all over again here :
-        #first find the workers to be reducers:
-        #stop when num_remaining_reduce_tasks == 0
-        for ID, free in self.freeWorkers.items() :
-            #if self.num_remaining_reduce_tasks == 0 :
-                #break
-            new_reducers[ID] = free
-            self.num_remaining_reduce_tasks -= 1
-            if self.num_remaining_reduce_tasks == 0 :
-                break
 
-        print("finished choosing reducers, now num of new reducers:")
-        print(len(new_reducers))
-        print("num_remaining_reduce_tasks:")
-        print(self.num_remaining_reduce_tasks)
+        #print("num_remaining_reduce_tasks:")
+        #print(self.num_remaining_reduce_tasks)
         #use the files in the tempdir as the input_paths(filename) to pass to workers
         #the manager also creates a temp output
         executable = message_dict["reducer_executable"]
         output_directory = message_dict["output_directory"]
-        
         #tasks will be a list of (list of filename strings)
         
         #send the message to reducers:
-        for reducer_id, reducer in new_reducers.items():
-            print("Assigning tasks to reducers")
-            success = True
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                host = reducer.worker_host
-                port = reducer.worker_port
-                try:
-                    sock.connect((host, port))
-                    message = json.dumps({
-                        "message_type" : "new_reduce_task",
-                        "task_id" : self.map_task_id,
-                        "executable" : executable,
-                        "input_paths" : self.reduce_tasks[self.reduce_task_id],
-                        "output_directory" : output_directory,
-                        "worker_host" : host,
-                        "worker_port" : port
-                    })
-                    sock.sendall(message.encode('utf-8'))
-                except ConnectionRefusedError:
-                    LOGGER.info("ConnectionRefusedError")
-                    success = False
-                    dead_id = self.get_worker_id(host, port)
-                    self.mark_worker_dead(dead_id)
-            if(success):
-                self.update_busy(reducer_id) #update worker's state to busy
-                self.workers[reducer_id].task_type = "reduce"
-                self.workers[reducer_id].current_task = self.reduce_tasks[self.reduce_task_id]
-                reducer.task_type = "reduce"
-                reducer.current_task = self.reduce_tasks[self.reduce_task_id]
-                self.reduce_task_id += 1
+        while not self.reduce_tasks.empty() and not self.shutdown and self.taskState == "reducing":
+            time.sleep(0.1)
+            # update free worker each loop!!!!
+            self.get_free_workers()
+            print("trying to assigning tasks to reducers")
+            for worker_id, worker in self.freeWorkers.items() :
+                print("Assigning tasks to reducers")
+                success = True
+                task = self.reduce_tasks.get()
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    host = worker.worker_host
+                    port = worker.worker_port
+                    try:
+                        sock.connect((host, port))
+                        message = json.dumps({
+                            "message_type" : "new_reduce_task",
+                            "task_id" : task['task_id'],
+                            "executable" : executable,
+                            "input_paths" : task['task_files'],
+                            "output_directory" : output_directory,
+                            "worker_host" : host,
+                            "worker_port" : port
+                        })
+                        print(message)
+                        sock.sendall(message.encode('utf-8'))
+                    except ConnectionRefusedError:
+                        LOGGER.info("ConnectionRefusedError")
+                        success = False
+                        #dead_id = self.get_worker_id(host, port)
+                        self.mark_worker_dead(worker_id)
+                        self.reduce_tasks.put(task)
+                        print("dead")
+                if(success):
+                    self.update_busy(worker_id) #update worker's state to busy
+                    self.workers[worker_id].current_task = task
+                    #self.reduce_task_id += 1
 
         self.taskState = "reducing"
 
@@ -502,8 +511,8 @@ class Manager:
                     #looping through workers and if one has not for 10s mark as dead
                     wHost = message_dict["worker_host"]
                     wPort = message_dict["worker_port"]
-                    workerID = self.get_worker_id(wHost, wPort)
-                    self.lastBeat[workerID] = time.time()
+                    self.lastBeat[(wHost, wPort)] = time.time()
+                    LOGGER.info('Received heartbeat from Worker (%s, %s)', wHost, wPort)
                     #still need to create a function to reassign works of dead workers
         print("listening hb finished")
     
@@ -512,16 +521,28 @@ class Manager:
         while self.shutdown is not True: 
             time.sleep(0.1)
             for workerID, worker in self.workers.items() : #iterate
-                if (workerID in self.lastBeat and time.time() - self.lastBeat[workerID] >= 10) :
-                    self.mark_worker_dead(workerID)
+                wHost = worker.worker_host
+                wPort = worker.worker_port
+                #print("In total worker:")
+                #print((wHost, wPort))
+                # TODO: haven't sent any heartbeat?
+                if ((wHost, wPort) in self.lastBeat and time.time() - self.lastBeat[(wHost, wPort)] >= 10) :
+                    LOGGER.info("Some worker died")
+                    self.lastBeat.pop((wHost, wPort), None) #TODO: check
+                    LOGGER.info(worker.state)
                     if worker.state == "busy" :
-                        #TODO: how to handle task_ID?
-                        if worker.task_type == "map":
-                            self.map_tasks.append(worker["task"])
-                            self.num_remaining_map_tasks += 1
-                        elif worker.task_type == "reduce":
-                            self.reduce_tasks.append(worker["task"])
-                            self.num_remaining_reduce_tasks += 1
+                        LOGGER.info("Dead worker is busy")
+                        # hand over task
+                        if worker.current_task['task_type'] == "map":
+                            self.map_tasks.put(worker.current_task)
+                            LOGGER.info("New map task added")
+                            #self.num_remaining_map_tasks += 1
+                        elif worker.current_task['task_type'] == "reduce":
+                            self.reduce_tasks.put(worker.current_task)
+                            LOGGER.info("New reduce task added")
+                            #self.num_remaining_reduce_tasks += 1
+                    # after checking its state, mark it as dead!!!
+                    self.mark_worker_dead(workerID)
         print("checking dead finished")
     
     def get_worker_id(self, host, port) :
