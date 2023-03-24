@@ -145,10 +145,11 @@ class Manager:
                         self.receiveCount += 1
                         print("finished map task num:")
                         print(self.receiveCount)
-                        print("num_mappers needed:")
+                        print("map tasks total num:")
                         print(self.currentJob["num_mappers"])
                         if self.receiveCount == self.currentJob["num_mappers"]:
                             self.taskState = "map_finished"
+                            print("mapping finished!")
                     elif self.taskState == "reducing" :
                         print("reducing now")
                         self.finishCount += 1
@@ -178,11 +179,12 @@ class Manager:
     def check_job_queue(self):
         while self.shutdown is not True:
             time.sleep(0.1)
-            # TODO: make this a new thread?
             print ("starting checking job queue")
-            print (self.job_queue.empty())
-            print (self.manager_state)
-            print (self.get_free_workers())
+            #print (self.job_queue.empty())
+            #print (self.manager_state)
+            #print (self.get_free_workers())
+            if (self.manager_state == 'ready'):
+                print("we are not running a job")
             if (not self.job_queue.empty()) and self.manager_state == 'ready':
                 print ("running a job!")
                 self.manager_state = "busy"
@@ -212,6 +214,7 @@ class Manager:
                         print(self.taskState)
                         self.assign_map_work(message_dict, tmpdir)
                         time.sleep(0.1)
+                    print("we are out map loop!!")
                     while (self.taskState == "map_finished" and self.shutdown == False): 
                         print(self.taskState)
                         self.partition_reducing(message_dict, tmpdir)
@@ -223,6 +226,7 @@ class Manager:
                     # if self.taskState == "reduce_finished":
                     #        self.taskState = "complete"
                 LOGGER.info("Cleaned up tmpdir %s", tmpdir)
+                print("we finished a job!")
                 self.manager_state = "ready"
         print("check job queue finished")
 
@@ -234,12 +238,7 @@ class Manager:
         workerPort = dic["worker_port"]
         #create a dictionary that stores the worker's info:
         #change the worker list of dic  to a dictionary of key: workerid, value: worker object
-        #TODO: another way to handle this, using bool success?
-        worker_id = self.workerCount #worker pid for identification
-        worker = self.Worker(workerHost, workerPort, "ready", {}) #task is a dict
-        self.workers[worker_id] = worker
-        self.workerCount += 1
-        LOGGER.info('First try to register Worker (%s, %s)', workerHost, workerPort)
+        success = True
         #then send a message back to the worker 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             try:
@@ -251,9 +250,17 @@ class Manager:
                 })
                 sock.sendall(message.encode('utf-8'))
             except ConnectionRefusedError:
+                success = False
                 LOGGER.info("ConnectionRefusedError")
                 #dead_id = self.get_worker_id(workerHost, workerPort)
-                self.mark_worker_dead(worker_id)
+                #self.mark_worker_dead(worker_id)
+        if(success):
+            worker_id = self.workerCount #worker pid for identification
+            worker = self.Worker(workerHost, workerPort, "ready", {}) #task is a dict
+            self.workers[worker_id] = worker
+            self.workerCount += 1
+            if((workerHost, workerHost) not in self.lastBeat):
+                self.lastBeat[(workerHost, workerHost)] = time.time()
         LOGGER.info('Registered Worker (%s, %s)', workerHost, workerPort)
     
     def handle_shutdown(self) :
@@ -333,7 +340,8 @@ class Manager:
             self.map_tasks.put(partitioned_task)
         print("finished partioning map tasks")
         #now self.map_tasks added num_needed_mappers entries
-        self.assign_map_work(message_dict, tmpdir)
+        #self.assign_map_work(message_dict, tmpdir)
+        self.taskState = "mapping"
 
     def assign_map_work(self, message_dict, tmpdir) :
         # if finished map, return
@@ -346,13 +354,14 @@ class Manager:
         num_reducers = message_dict["num_reducers"]
         executable = message_dict["mapper_executable"]
 
-        #print("num_remaining_map_tasks:")
+        print("we're going into the map loop")
         #print(self.num_remaining_map_tasks)
 
         #tasks will be a list of (list of filename strings)
         #now tasks have num_needed_mappers entries
         while not self.map_tasks.empty() and not self.shutdown and self.taskState == "mapping":
             time.sleep(0.1)
+            print("we are in the map loop")
             # update free worker each loop!!!!
             self.get_free_workers()
             print("trying to assigning tasks to mappers")
@@ -361,14 +370,12 @@ class Manager:
                 print(len(self.freeWorkers))
                 print("available map task num?")
                 print(self.map_tasks.qsize())
-            for worker_id, worker in self.freeWorkers.items():
-                print(len(self.freeWorkers))
-                print(worker_id)
+                #break if empty!!!!!!!
+                if(self.map_tasks.empty()): break
                 print(worker.worker_host)
                 print(worker.worker_port)
                 success = True
                 task = self.map_tasks.get()
-                print(task)
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                     host = worker.worker_host
                     port = worker.worker_port
@@ -399,8 +406,6 @@ class Manager:
                     self.workers[worker_id].current_task = task
                     #self.map_task_id += 1
 
-        self.taskState = "mapping"
-    
     #for reducing:
     def partition_reducing(self, message_dict, tmpdir) :
         #self.reduce_task_id = 0
@@ -428,7 +433,8 @@ class Manager:
             self.reduce_tasks.put(partitioned_task)
         print("finished partioning reduce tasks")
         #now self.reduce_tasks added num_needed_reducers entries
-        self.assign_reduce_work(message_dict)
+        #self.assign_reduce_work(message_dict)
+        self.taskState = "reducing"
 
     def assign_reduce_work(self, message_dict) :
         # if finished reduce, return
@@ -455,6 +461,8 @@ class Manager:
             print("trying to assigning tasks to reducers")
             for worker_id, worker in self.freeWorkers.items() :
                 print("Assigning tasks to reducers")
+                #break if empty!!!!!!!
+                if(self.reduce_tasks.empty()): break
                 success = True
                 task = self.reduce_tasks.get()
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -485,7 +493,7 @@ class Manager:
                     self.workers[worker_id].current_task = task
                     #self.reduce_task_id += 1
 
-        self.taskState = "reducing"
+        #self.taskState = "reducing"
 
     #a function for listening to heartbeat messages :
     def listen_hb(self) :
@@ -526,9 +534,9 @@ class Manager:
                 #print("In total worker:")
                 #print((wHost, wPort))
                 # TODO: haven't sent any heartbeat?
-                if ((wHost, wPort) in self.lastBeat and time.time() - self.lastBeat[(wHost, wPort)] >= 10) :
+                if (worker.state != "dead" and time.time() - self.lastBeat[(wHost, wPort)] >= 10) :
                     LOGGER.info("Some worker died")
-                    self.lastBeat.pop((wHost, wPort), None) #TODO: check
+                    #self.lastBeat.pop((wHost, wPort), None)
                     LOGGER.info(worker.state)
                     if worker.state == "busy" :
                         LOGGER.info("Dead worker is busy")

@@ -126,8 +126,23 @@ class Worker:
         #run the executable :
         prefix = f"mapreduce-local-task{message_dict['task_id']:05d}-"
         with tempfile.TemporaryDirectory(prefix=prefix) as tmpdir:
-            for input_path in input_paths :
-                with open(input_path, encoding="utf-8") as infile:
+            with ExitStack() as stack:
+                # use stack to reduce time and memory by reducing open times!!!
+                files_opened = []
+                for input_path in input_paths :
+                    files_opened.append(stack.enter_context(open(input_path,
+                                        encoding="utf-8")))
+                part_files = []
+                for part_num in range(num_partitions):
+                    part_file_name = f"maptask{message_dict['task_id']:05d}-part{f'{part_num:05d}'}"
+                    part_file_path = os.path.join(tmpdir, part_file_name)
+                    part_files.append(
+                        stack.enter_context(
+                            open(part_file_path,"a+", encoding="utf-8")
+                        )
+                    )
+
+                for infile in files_opened:
                     with subprocess.Popen(
                         [executable],
                         stdin=infile,
@@ -135,36 +150,29 @@ class Worker:
                         text=True,
                     ) as map_process :
                         for line in map_process.stdout :
-                            print(line)
+                            #print(line)
                             #line = line.strip()
-                            if not line:
-                                continue
                             key = line.split("\t")[0]
-                            print(key)
+                            # print(key)
                             hexdigest = hashlib.md5(key.encode("utf-8")).hexdigest()
                             keyhash = int(hexdigest, base=16)
                             partition_number = keyhash % num_partitions
-                            part_file_name = f"maptask{message_dict['task_id']:05d}-part{f'{partition_number:05d}'}"
-                            print(part_file_name)
-                            part_file_path = os.path.join(tmpdir, part_file_name)
-                            with open(part_file_path, 'a+', encoding="utf-8") as part_file:
-                                part_file.write(line)
-                                print('wrote line ', line, " to ", part_file_path)
-                                part_file.close()
-                            
-            #after this the worker open the directory :
-            os.chdir(tmpdir)
-            files = os.listdir()
-            #then open each file to sort the values in each file and write back
-            for file in files :
+                            part_files[partition_number].write(line)
+                            #print(input_path)
+                            #print('wrote line ', line, " to ", part_file_path)
+                            #part_file.close()
+
+            #topen each file to sort the values in each file and write back
+            for file in os.listdir(tmpdir) :
                 # TODO: check correctness
-                with open(file, 'r') as currFile :
+                file_path = os.path.join(tmpdir, file)
+                # open once to reduce time and memory!!!
+                with open(file_path, 'r+', encoding="utf-8") as currFile :
                     tempList = currFile.readlines()
-                    print(tempList)
+                    #print(tempList)
                     tempList.sort()
-                    with open(file, 'w') as currFile :
-                        currFile.writelines(tempList)
-                        currFile.close()
+                    #sorted(tempList)
+                    currFile.writelines(tempList)
                 # move sorted temp files to output dir.
                 shutil.move(os.path.join(tmpdir, file),
                             os.path.join(output_dir, file))
@@ -186,7 +194,7 @@ class Worker:
         executable = message_dict["executable"]
         output_directory = message_dict["output_directory"]
         #need to make the task_id a 5 digit number: 
-        task_id = '{:05d}'.format(message_dict["task_id"])
+        #task_id = '{:05d}'.format(message_dict["task_id"])
         #now deal with the outfile : 
         #prefix = 'mapreduce-local-task{}-'.format(task_id)
         prefix = f"mapreduce-local-task{message_dict['task_id']:05d}-"
@@ -198,20 +206,22 @@ class Worker:
                     files_opened.append(stack.enter_context(open(file,
                                         encoding="utf-8")))
                 instream = heapq.merge(*files_opened) 
-                outfile_str = '{}/part-{}'.format(tmp_dir2, task_id)
+                outfile_path = os.path.join(tmp_dir2,
+                                    f"part-{message_dict['task_id']:05d}")
+                #outfile_str = '{}/part-{}'.format(tmp_dir2, task_id)
                 #outfile_str = tmp_dir2 + '/' + f"part-{message_dict['task_id']:05d}"
-                with open(outfile_str, "w", encoding="utf-8") as outfile:
-                    with subprocess.Popen(
-                        [executable],
-                        text=True,
-                        stdin=subprocess.PIPE,
-                        stdout=outfile,
-                    ) as reduce_process :
-                        for line in instream:
-                            # print(line)
-                            reduce_process.stdin.write(line)
-                    #now move the output file to the output directory:
-                    shutil.move(outfile_str , output_directory)
+                outfile = stack.enter_context(open(outfile_path, "w+", encoding="utf-8"))
+                with subprocess.Popen(
+                    [executable],
+                    text=True,
+                    stdin=subprocess.PIPE,
+                    stdout=outfile,
+                ) as reduce_process :
+                    for line in instream:
+                        # print(line)
+                        reduce_process.stdin.write(line)
+                #now move the output file to the output directory:
+                shutil.move(outfile_path , output_directory)
         print("worker finish reducing")
 
         #then send the finish message back to the manager:
