@@ -341,10 +341,11 @@ class Manager:
         #break the for loop when num_remaining_map_tasks == 0
         new_mappers = {} #a dictionary
         for ID, free in self.freeWorkers.items():
-            new_mappers[ID] = free
-            self.num_remaining_map_tasks -= 1
             if self.num_remaining_map_tasks == 0 :
                 break
+            new_mappers[ID] = free
+            self.num_remaining_map_tasks -= 1
+
         print("finished choosing mappers, now num of new mappers:")
         print(len(new_mappers))
         print("num_remaining_map_tasks:")
@@ -424,10 +425,13 @@ class Manager:
         #first find the workers to be reducers:
         #stop when num_remaining_reduce_tasks == 0
         for ID, free in self.freeWorkers.items() :
+            #if self.num_remaining_reduce_tasks == 0 :
+                #break
             new_reducers[ID] = free
             self.num_remaining_reduce_tasks -= 1
             if self.num_remaining_reduce_tasks == 0 :
                 break
+
         print("finished choosing reducers, now num of new reducers:")
         print(len(new_reducers))
         print("num_remaining_reduce_tasks:")
@@ -513,8 +517,10 @@ class Manager:
                         #TODO: how to handle task_ID?
                         if worker.task_type == "map":
                             self.map_tasks.append(worker["task"])
+                            self.num_remaining_map_tasks += 1
                         elif worker.task_type == "reduce":
                             self.reduce_tasks.append(worker["task"])
+                            self.num_remaining_reduce_tasks += 1
         print("checking dead finished")
     
     def get_worker_id(self, host, port) :
