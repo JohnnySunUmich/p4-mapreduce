@@ -141,15 +141,8 @@ class Manager:
                     break
                 elif message_type == "finished" :
                     print("received finished message")
-                    #first change the worker's state to ready again:
-                    pid = self.get_worker_id(message_dict["worker_host"], message_dict["worker_port"])
-                    self.worker_state_lock.acquire()
-                    self.update_ready(pid)
-                    self.worker_state_lock.release()
-                    # TODO: race condition?
-                    LOGGER.info("finished update ready")
                     if self.taskState == "mapping" :
-                        print("mapping now")
+                        print("this finished task is a map task")
                         self.receiveCount += 1
                         print("finished map task num:")
                         print(self.receiveCount)
@@ -159,7 +152,7 @@ class Manager:
                             self.taskState = "map_finished"
                             print("mapping finished!")
                     elif self.taskState == "reducing" :
-                        print("reducing now")
+                        print("this finished task is a reduce task")
                         self.finishCount += 1
                         print(self.finishCount)
                         print(self.currentJob["num_reducers"])
@@ -170,6 +163,14 @@ class Manager:
                     #finished from mapping, we can directly call reducing
                     #the thing of check job queue change to that if queue is not empty and manager free now
                     #call the handle job, create a senario for the new execution
+
+                    # change the worker's state to ready again:
+                    pid = self.get_worker_id(message_dict["worker_host"], message_dict["worker_port"])
+                    self.worker_state_lock.acquire()
+                    self.update_ready(pid)
+                    self.worker_state_lock.release()
+                    # TODO: race condition?
+                    LOGGER.info("finished update ready")
                 time.sleep(0.1)
         print("listening messages finished\n")  
     
