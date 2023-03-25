@@ -47,7 +47,7 @@ class Manager:
         self.tempDir = "" #for reassign
 
         self.worker_state_lock= threading.Lock()
-        self.task_state_lock= threading.Lock()
+        #self.task_state_lock= threading.Lock()
         #start running the main thing : 
         #for three things be at the same time : 
         # listen TCP/ job running/ listen UDP / check dead
@@ -263,9 +263,11 @@ class Manager:
                 #dead_id = self.get_worker_id(workerHost, workerPort)
                 #self.mark_worker_dead(worker_id)
         if(success):
+            #self.worker_state_lock.acquire()
             worker_id = self.workerCount #worker pid for identification
             worker = self.Worker(workerHost, workerPort, "ready", {}) #task is a dict
             self.workers[worker_id] = worker
+            #self.worker_state_lock.release()
             self.workerCount += 1
             if((workerHost, workerHost) not in self.lastBeat):
                 self.lastBeat[(workerHost, workerHost)] = time.time()
@@ -416,6 +418,7 @@ class Manager:
                     self.update_busy(worker_id) #update worker's state to busy
                     # TODO: could have race condition, so lock this!
                     # don't want someone to modify this before it update_busy
+                    # add an if statement?
                     LOGGER.info("finished update busy")
                     self.workers[worker_id].current_task = task
                     #self.map_task_id += 1
@@ -553,6 +556,7 @@ class Manager:
                 #print("In total worker:")
                 #print((wHost, wPort))
                 # TODO: haven't sent any heartbeat?
+                #self.worker_state_lock.acquire()
                 if (worker.state != "dead" and time.time() - self.lastBeat[(wHost, wPort)] >= 10) :
                     LOGGER.info("Some worker died")
                     #self.lastBeat.pop((wHost, wPort), None)
@@ -570,6 +574,7 @@ class Manager:
                             #self.num_remaining_reduce_tasks += 1
                     # after checking its state, mark it as dead!!!
                     self.mark_worker_dead(workerID)
+                #self.worker_state_lock.release()
         print("checking dead finished")
     
     def get_worker_id(self, host, port) :
