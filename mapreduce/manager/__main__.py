@@ -269,6 +269,7 @@ class Manager:
                 print("set last beat before registering")
             #self.worker_state_lock.acquire()
             worker_id = self.workerCount #worker pid for identification
+            # TODO: consider revive?
             worker = self.Worker(workerHost, workerPort, "ready", {}) #task is a dict
             self.workers[worker_id] = worker
             #self.worker_state_lock.release()
@@ -579,8 +580,9 @@ class Manager:
         print("checking dead finished")
     
     def get_worker_id(self, host, port) :
+        # consider revive!
         for pid in self.workers:
-            if self.workers[pid].worker_host == host and self.workers[pid].worker_port == port :
+            if self.workers[pid].worker_host == host and self.workers[pid].worker_port == port and self.workers[pid].state != "dead":
                 return pid
 
     def mark_worker_dead(self, dead_id) :
