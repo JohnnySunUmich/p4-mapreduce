@@ -23,6 +23,7 @@ class Manager:
         self.port = port
         self.shutdown = False
         #create a list for workers that are registered to it
+        #TODO: worker Sate written by multiple threads: race condition?
         self.workers = {} #a dictionary of worker objects
         self.workerCount = 0 #should there be an worker_id in the dictionary for the quick access?
         self.freeWorkers = {} #all the workers that are ready
@@ -37,12 +38,16 @@ class Manager:
         #use (host, port) as key
         self.lastBeat = {}
         self.manager_state = "ready"
+        #TODO: taskSate written by multiple threads: race condition?
         self.taskState = "begin" #track if it si tasking state or reducing state
         self.receiveCount = 0 #track the finished map job
         self.finishCount = 0 #track the finished reduce job
         self.job_queue = Queue() #for pending jobs to be exevute 
         self.currentJob = {} #for reassign
         self.tempDir = "" #for reassign
+
+        self.worker_state_lock= threading.Lock()
+        self.task_state_lock= threading.Lock()
         #start running the main thing : 
         #for three things be at the same time : 
         # listen TCP/ job running/ listen UDP / check dead
@@ -131,7 +136,6 @@ class Manager:
                     self.handle_job_request(message_dict)
                 elif message_type == "register" :
                     self.handle_register(message_dict)
-                    # TODO: check succcess?
                 elif message_type == "shutdown" :
                     self.handle_shutdown()
                     break
@@ -139,7 +143,11 @@ class Manager:
                     print("received finished message")
                     #first change the worker's state to ready again:
                     pid = self.get_worker_id(message_dict["worker_host"], message_dict["worker_port"])
+                    self.worker_state_lock.acquire()
                     self.update_ready(pid)
+                    self.worker_state_lock.release()
+                    # TODO: race condition?
+                    LOGGER.info("finished update ready")
                     if self.taskState == "mapping" :
                         print("mapping now")
                         self.receiveCount += 1
@@ -377,6 +385,8 @@ class Manager:
                 print(worker.worker_port)
                 success = True
                 task = self.map_tasks.get()
+
+                self.worker_state_lock.acquire()
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                     host = worker.worker_host
                     port = worker.worker_port
@@ -404,8 +414,12 @@ class Manager:
                 if(success):
                     LOGGER.info("send map test")
                     self.update_busy(worker_id) #update worker's state to busy
+                    # TODO: could have race condition, so lock this!
+                    # don't want someone to modify this before it update_busy
+                    LOGGER.info("finished update busy")
                     self.workers[worker_id].current_task = task
                     #self.map_task_id += 1
+                self.worker_state_lock.release()
 
     #for reducing:
     def partition_reducing(self, message_dict, tmpdir) :
@@ -466,6 +480,8 @@ class Manager:
                 if(self.reduce_tasks.empty()): break
                 success = True
                 task = self.reduce_tasks.get()
+
+                self.worker_state_lock.acquire()
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                     host = worker.worker_host
                     port = worker.worker_port
@@ -491,8 +507,10 @@ class Manager:
                         print("dead")
                 if(success):
                     self.update_busy(worker_id) #update worker's state to busy
+                    LOGGER.info("finished update busy")
                     self.workers[worker_id].current_task = task
                     #self.reduce_task_id += 1
+                self.worker_state_lock.release()
 
         #self.taskState = "reducing"
 
