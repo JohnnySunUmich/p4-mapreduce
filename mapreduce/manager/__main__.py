@@ -263,15 +263,15 @@ class Manager:
                 #dead_id = self.get_worker_id(workerHost, workerPort)
                 #self.mark_worker_dead(worker_id)
         if(success):
+            if((workerHost, workerPort) not in self.lastBeat):
+                self.lastBeat[(workerHost, workerPort)] = time.time()
+                print("set last beat before registering")
             #self.worker_state_lock.acquire()
             worker_id = self.workerCount #worker pid for identification
             worker = self.Worker(workerHost, workerPort, "ready", {}) #task is a dict
             self.workers[worker_id] = worker
             #self.worker_state_lock.release()
             self.workerCount += 1
-            if((workerHost, workerHost) not in self.lastBeat):
-                self.lastBeat[(workerHost, workerHost)] = time.time()
-                print("set last beat when registering")
         LOGGER.info('Registered Worker (%s, %s)', workerHost, workerPort)
     
     def handle_shutdown(self) :
@@ -553,9 +553,9 @@ class Manager:
             for workerID, worker in self.workers.items() : #iterate
                 wHost = worker.worker_host
                 wPort = worker.worker_port
+                #print(self.lastBeat.get((wHost, wPort)))
                 #print("In total worker:")
                 #print((wHost, wPort))
-                # TODO: haven't sent any heartbeat?
                 #self.worker_state_lock.acquire()
                 if (worker.state != "dead" and time.time() - self.lastBeat[(wHost, wPort)] >= 10) :
                     LOGGER.info("Some worker died")
