@@ -149,7 +149,6 @@ class Worker:
         """Sort and write."""
         # open each file to sort the values in each file and write back
         for file_path in Path(tmpdir).iterdir():
-            # TODOO: check correctness
             file_name = file_path.name
             # open once to reduce time and memory!!!
             with open(file_path, 'r+', encoding="utf-8") as curr_file:
