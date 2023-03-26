@@ -31,7 +31,7 @@ class Manager:
             "manager_state": 'ready'
         }
 
-        # TODOO: worker Sate written by multiple threads: race condition?
+        # worker Sate written by multiple threads: race condition?
         self.workers_info = {
             "workers": {},
             "worker_count": 0,
@@ -46,7 +46,7 @@ class Manager:
             "receive_count": 0,
             "finish_count": 0
         }
-        # TODOO: taskSate written by multiple threads: race condition?
+        # taskSate written by multiple threads: race condition?
 
         self.job_count = 0  # used for job_id
         self.job_queue = Queue()  # for pending jobs to be exevute
@@ -368,11 +368,10 @@ class Manager:
                 print(worker.worker_host)
                 print(worker.worker_port)
                 task = self.task_info["map_tasks"].popleft()
-                # update worker's state to busy BEFORE messaging
+                # update worker's state to busy BEFORE messaging!
+                # to avoid race condition
                 self.update_busy(worker_id)
-                # TODOO: could have race condition, so lock this!
                 # don't want sb to modify this before it update_busy
-                # add an if statement?
                 LOGGER.info("finished update busy")
                 self.workers_info["workers"][
                     worker_id].current_task = task
@@ -455,7 +454,8 @@ class Manager:
                 if len(self.task_info["reduce_tasks"]) == 0:
                     break
                 task = self.task_info["reduce_tasks"].popleft()
-                # update worker's state to busy BEFORE messaging
+                # update worker's state to busy BEFORE messaging!
+                # to avoid race condition
                 self.update_busy(worker_id)
                 LOGGER.info("finished update busy")
                 self.workers_info["workers"][
@@ -512,7 +512,6 @@ class Manager:
                     LOGGER.info(
                         'Received heartbeat from Worker (%s, %s)', w_host,
                         w_port)
-                    # still need create func to reassign works of dead workers
         print("listening hb finished")
 
     def check_dead(self):
@@ -539,7 +538,7 @@ class Manager:
                             self.task_info[
                                 "reduce_tasks"].append(worker.current_task)
                             LOGGER.info("New reduce task added")
-                    # after checking its state, mark it as dead!!!
+                    # AFTER checking its state, mark it as dead!!!
                     self.mark_worker_dead(w_id)
                 # self.worker_state_lock.release()
         print("checking dead finished")
