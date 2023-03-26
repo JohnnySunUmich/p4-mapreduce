@@ -368,7 +368,7 @@ class Manager:
                 print(worker.worker_host)
                 print(worker.worker_port)
                 task = self.task_info["map_tasks"].popleft()
-                # update worker's state to busy
+                # update worker's state to busy BEFORE messaging
                 self.update_busy(worker_id)
                 # TODOO: could have race condition, so lock this!
                 # don't want sb to modify this before it update_busy
@@ -455,7 +455,7 @@ class Manager:
                 if len(self.task_info["reduce_tasks"]) == 0:
                     break
                 task = self.task_info["reduce_tasks"].popleft()
-                # update worker's state to busy
+                # update worker's state to busy BEFORE messaging
                 self.update_busy(worker_id)
                 LOGGER.info("finished update busy")
                 self.workers_info["workers"][
