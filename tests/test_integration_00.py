@@ -19,10 +19,10 @@ def test_grep(mapreduce_client, tmp_path):
     """
     utils.send_message({
         "message_type": "new_manager_job",
-        "input_directory": TESTDATA_DIR/"input",
+        "input_directory": TESTDATA_DIR+"input",
         "output_directory": tmp_path,
-        "mapper_executable": TESTDATA_DIR/"exec/grep_map.py",
-        "reducer_executable": TESTDATA_DIR/"exec/grep_reduce.py",
+        "mapper_executable": TESTDATA_DIR+"exec/grep_map.py",
+        "reducer_executable": TESTDATA_DIR+"exec/grep_reduce.py",
         "num_mappers": 2,
         "num_reducers": 1
     }, port=mapreduce_client.manager_port)
@@ -32,7 +32,7 @@ def test_grep(mapreduce_client, tmp_path):
 
     # Verify final output file contents
     assert filecmp.cmp(
-        TESTDATA_DIR/"correct/grep_correct.txt",
+        TESTDATA_DIR+"correct/grep_correct.txt",
         f"{tmp_path}/part-00000",
         shallow=False
     )

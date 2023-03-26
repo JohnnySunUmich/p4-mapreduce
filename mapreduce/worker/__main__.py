@@ -1,5 +1,4 @@
 """MapReduce framework Worker node."""
-import os
 import logging
 import socket
 import json
@@ -7,6 +6,7 @@ import time
 import threading
 from contextlib import ExitStack
 import shutil
+from pathlib import Path
 import hashlib
 import tempfile
 import subprocess
@@ -124,14 +124,14 @@ class Worker:
                                       f"-part{f'{part_num:05d}'}")
                     part_files.append(
                         stack.enter_context(
-                            open(os.path.join(tmpdir, part_file_name),
+                            open(Path(tmpdir) / part_file_name,
                                  "a+", encoding="utf-8")
                         )
                     )
 
                 for infile in files_opened:
                     with subprocess.Popen(
-                        [message_dict["executable"]],
+                        [Path(message_dict["executable"])],
                         stdin=infile,
                         stdout=subprocess.PIPE,
                         text=True,
@@ -148,9 +148,9 @@ class Worker:
     def sort_and_write(self, message_dict, tmpdir):
         """Sort and write."""
         # open each file to sort the values in each file and write back
-        for file in os.listdir(tmpdir):
+        for file_path in Path(tmpdir).iterdir():
             # TODOO: check correctness
-            file_path = os.path.join(tmpdir, file)
+            file_name = file_path.name
             # open once to reduce time and memory!!!
             with open(file_path, 'r+', encoding="utf-8") as curr_file:
                 temp_list = curr_file.readlines()
@@ -159,8 +159,8 @@ class Worker:
                 curr_file.seek(0)
                 curr_file.writelines(temp_list)
             # move sorted temp files to output dir.
-            shutil.move(os.path.join(tmpdir, file),
-                        os.path.join(message_dict["output_directory"], file))
+            shutil.move(file_path,
+                        Path(message_dict["output_directory"]) / file_name)
 
         # now the worker sends back the finished message to the manager:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -190,12 +190,12 @@ class Worker:
                     files_opened.append(stack.enter_context(open(file,
                                         encoding="utf-8")))
                 instream = heapq.merge(*files_opened)
-                outfile_path = os.path.join(
-                    tmp_dir2, f"part-{message_dict['task_id']:05d}")
+                outfile_path = Path(
+                    tmp_dir2) / f"part-{message_dict['task_id']:05d}"
                 outfile = stack.enter_context(
                     open(outfile_path, "w+", encoding="utf-8"))
                 with subprocess.Popen(
-                    [message_dict["executable"]],
+                    [Path(message_dict["executable"])],
                     text=True,
                     stdin=subprocess.PIPE,
                     stdout=outfile,
@@ -204,7 +204,8 @@ class Worker:
                         # print(line)
                         reduce_process.stdin.write(line)
                 # now move the output file to the output directory:
-                shutil.move(outfile_path, message_dict["output_directory"])
+                shutil.move(outfile_path, Path(
+                    message_dict["output_directory"]))
         print("worker finish reducing")
 
         # then send the finish message back to the manager:

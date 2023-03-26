@@ -1,5 +1,4 @@
 """MapReduce framework Manager node."""
-import os
 import tempfile
 import logging
 import socket
@@ -8,6 +7,7 @@ import json
 from time import time, sleep
 from collections import deque
 import shutil
+from pathlib import Path
 from queue import Queue
 from types import SimpleNamespace
 import click
@@ -143,13 +143,13 @@ class Manager:
                 message_dict = self.job_queue.get()
                 self.current_job = message_dict
 
-                output_dir = message_dict["output_directory"]
+                output_dir = Path(message_dict["output_directory"])
                 # delete output directory if exists
-                if os.path.exists(output_dir):
+                if output_dir.exists():
                     shutil.rmtree(output_dir)
                     LOGGER.info("deleted output directory %s", output_dir)
                 # create output directory
-                os.makedirs(output_dir)
+                output_dir.mkdir(parents=True, exist_ok=False)
                 LOGGER.info("Created output directory %s", output_dir)
                 # create tempdir need call both mapping & reducing inside it:
                 prefix = f"mapreduce-shared-job{message_dict['job_id']:05d}-"
@@ -319,9 +319,8 @@ class Manager:
     def partition_mapping(self, message_dict):
         """Partition mapping tasks."""
         input_list = []
-        for file in os.listdir(message_dict["input_directory"]):
-            joined_path = os.path.join(message_dict["input_directory"], file)
-            input_list.append(joined_path)
+        for file in Path(message_dict["input_directory"]).iterdir():
+            input_list.append(str(file))
         num_needed_mappers = message_dict["num_mappers"]
         num_files = len(input_list)
 
@@ -419,9 +418,8 @@ class Manager:
         # use str(file) to turn the file name just to string
 
         all_paths = []
-        for file in os.listdir(tmpdir):
-            joined_path = os.path.join(tmpdir, file)
-            all_paths.append(joined_path)
+        for file in Path(tmpdir).iterdir():
+            all_paths.append(str(file))
 
         num_needed_reducers = message_dict["num_reducers"]
         num_files = len(all_paths)

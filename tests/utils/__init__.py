@@ -16,7 +16,9 @@ TMPDIR = pathlib.Path("tmp")
 
 # Directory containing unit test input files, mapper executables,
 # reducer executables, etc.
-TESTDATA_DIR = pathlib.Path(__file__).parent.parent/"testdata"
+#TESTDATA_DIR = pathlib.Path(__file__).parent.parent/"testdata"
+TESTDATA_DIR = "/home/johnnysun/eecs485/p4-mapreduce/tests/testdata/"
+#TESTDATA_DIR = "tests/testdata/"
 
 # Time in between two heart beats.  This in the spec.
 TIME_BETWEEN_HEARTBEATS = 2
