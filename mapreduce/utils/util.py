@@ -2,7 +2,7 @@
 
 
 def get_message_str(socket, clientsocket):
-    """Fixing style issue"""
+    """Fix style issue."""
     with clientsocket:
         message_chunks = []
         while True:
@@ -17,3 +17,11 @@ def get_message_str(socket, clientsocket):
     message_bytes = b''.join(message_chunks)
     message_str = message_bytes.decode("utf-8")
     return message_str
+
+
+def create_socket(host, port, sock):
+    """Fix style issue."""
+    sock.bind((host, port))
+    sock.listen()
+    sock.settimeout(1)
+    print("Created server socket")
