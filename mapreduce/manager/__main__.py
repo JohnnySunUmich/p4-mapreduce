@@ -269,8 +269,8 @@ class Manager:
         # change the worker's state to ready again:
         pid = self.get_worker_id(message_dict["worker_host"],
                                  message_dict["worker_port"])
-        with self.worker_state_lock:
-            self.update_ready(pid)
+        # with self.worker_state_lock:
+        self.update_ready(pid)
         # TODOO: race condition?
         LOGGER.info("finished update ready")
 
@@ -367,45 +367,40 @@ class Manager:
                     break
                 print(worker.worker_host)
                 print(worker.worker_port)
-                success = True
                 task = self.task_info["map_tasks"].popleft()
-
-                with self.worker_state_lock:
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as\
-                            sock:
-                        host = worker.worker_host
-                        port = worker.worker_port
-                        try:
-                            sock.connect((host, port))
-                            message = json.dumps({
-                                "message_type": "new_map_task",
-                                "task_id": task['task_id'],
-                                # list of filename strings
-                                "input_paths": task['task_files'],
-                                "executable": executable,
-                                "output_directory": tmpdir,
-                                "num_partitions": num_reducers,
-                                "worker_host": host,
-                                "worker_port": port
-                            })
-                            print(message)
-                            sock.sendall(message.encode('utf-8'))
-                        except ConnectionRefusedError:
-                            LOGGER.info("ConnectionRefusedError")
-                            success = False
-                            self.mark_worker_dead(worker_id)
-                            self.task_info["map_tasks"].appendleft(task)
-                            print("dead")
-                    if success:
-                        LOGGER.info("send map test")
-                        # update worker's state to busy
-                        self.update_busy(worker_id)
-                        # TODOO: could have race condition, so lock this!
-                        # don't want sb to modify this before it update_busy
-                        # add an if statement?
-                        LOGGER.info("finished update busy")
-                        self.workers_info["workers"][
-                            worker_id].current_task = task
+                # update worker's state to busy
+                self.update_busy(worker_id)
+                # TODOO: could have race condition, so lock this!
+                # don't want sb to modify this before it update_busy
+                # add an if statement?
+                LOGGER.info("finished update busy")
+                self.workers_info["workers"][
+                    worker_id].current_task = task
+                # with self.worker_state_lock:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as\
+                        sock:
+                    host = worker.worker_host
+                    port = worker.worker_port
+                    try:
+                        sock.connect((host, port))
+                        message = json.dumps({
+                            "message_type": "new_map_task",
+                            "task_id": task['task_id'],
+                            # list of filename strings
+                            "input_paths": task['task_files'],
+                            "executable": executable,
+                            "output_directory": tmpdir,
+                            "num_partitions": num_reducers,
+                            "worker_host": host,
+                            "worker_port": port
+                        })
+                        print(message)
+                        sock.sendall(message.encode('utf-8'))
+                    except ConnectionRefusedError:
+                        LOGGER.info("ConnectionRefusedError")
+                        self.mark_worker_dead(worker_id)
+                        self.task_info["map_tasks"].appendleft(task)
+                        print("dead")
 
     # for reducing:
     def partition_reducing(self, message_dict, tmpdir):
@@ -459,39 +454,35 @@ class Manager:
                 # break if empty!!!!!!!
                 if len(self.task_info["reduce_tasks"]) == 0:
                     break
-                success = True
                 task = self.task_info["reduce_tasks"].popleft()
-
-                with self.worker_state_lock:
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as\
-                            sock:
-                        host = worker.worker_host
-                        port = worker.worker_port
-                        try:
-                            sock.connect((host, port))
-                            message = json.dumps({
-                                "message_type": "new_reduce_task",
-                                "task_id": task['task_id'],
-                                "executable": executable,
-                                "input_paths": task['task_files'],
-                                "output_directory": output_directory,
-                                "worker_host": host,
-                                "worker_port": port
-                            })
-                            print(message)
-                            sock.sendall(message.encode('utf-8'))
-                        except ConnectionRefusedError:
-                            LOGGER.info("ConnectionRefusedError")
-                            success = False
-                            self.mark_worker_dead(worker_id)
-                            self.task_info["reduce_tasks"].appendleft(task)
-                            print("dead")
-                    if success:
-                        # update worker's state to busy
-                        self.update_busy(worker_id)
-                        LOGGER.info("finished update busy")
-                        self.workers_info["workers"][
-                            worker_id].current_task = task
+                # update worker's state to busy
+                self.update_busy(worker_id)
+                LOGGER.info("finished update busy")
+                self.workers_info["workers"][
+                    worker_id].current_task = task
+                # with self.worker_state_lock:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as\
+                        sock:
+                    host = worker.worker_host
+                    port = worker.worker_port
+                    try:
+                        sock.connect((host, port))
+                        message = json.dumps({
+                            "message_type": "new_reduce_task",
+                            "task_id": task['task_id'],
+                            "executable": executable,
+                            "input_paths": task['task_files'],
+                            "output_directory": output_directory,
+                            "worker_host": host,
+                            "worker_port": port
+                        })
+                        print(message)
+                        sock.sendall(message.encode('utf-8'))
+                    except ConnectionRefusedError:
+                        LOGGER.info("ConnectionRefusedError")
+                        self.mark_worker_dead(worker_id)
+                        self.task_info["reduce_tasks"].appendleft(task)
+                        print("dead")
 
     # a function for listening to heartbeat messages:
     def listen_hb(self):
